@@ -180,3 +180,14 @@ func TestECDHDeriveRequiredArgs(t *testing.T) {
 	_, err = key.Derive(NewAttributeSet(), CipherGeneric, nil)
 	require.Error(t, err)
 }
+
+func TestRegisterECDH1CustomKDF(t *testing.T) {
+	const CKD_CUSTOM_SHA256_KDF = pkcs11.CKO_VENDOR_DEFINED | pkcs11.CKD_SHA256_KDF
+
+	err := RegisterECDH1CustomKDF(CKD_CUSTOM_SHA256_KDF, 32)
+	require.NoError(t, err)
+
+	// registering the same KDF again should fail
+	err = RegisterECDH1CustomKDF(CKD_CUSTOM_SHA256_KDF, 32)
+	require.Error(t, err)
+}

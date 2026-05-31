@@ -145,9 +145,33 @@ func exportECPublicKey(session *pkcs11Session, pubHandle pkcs11.ObjectHandle) (c
 	}
 }
 
-// GenerateECKeyPair creates a EC key pair on the token using curve c. The id parameter is used to
-// set CKA_ID and must be non-nil. Only a limited set of named elliptic curves are supported. The
-// underlying PKCS#11 implementation may impose further restrictions.
+// GenerateECKeyPair creates an EC key pair on the token using curve.
+//
+// Parameters:
+//   - id sets CKA_ID and must be non-nil.
+//   - curve is the named elliptic curve to generate on token (for example elliptic.P256()).
+//   - typ declares intended key usage (for example [ECDH] for derive-only, [ECDSA] for sign/verify).
+//
+// Return value:
+//   - The returned crypto.PrivateKey must be type-asserted by callers to the interface/struct they need.
+//     For example, for ECDH key agreement you typically assert to [Deriver], and then assert the public
+//     key to [*ecdh.PublicKey]. For ECDSA signing, you typically assert to [Signer] and then assert
+//     the public key to [*ecdsa.PublicKey].
+//
+// Example (ECDH):
+//
+//	key, err := ctx.GenerateECKeyPair([]byte("test"), elliptic.P256(), ECDH)
+//	if err != nil {
+//		// handle error
+//	}
+//	deriver, ok := key.(Deriver)
+//	if !ok {
+//		// handle unexpected key type
+//	}
+//	pub, ok := key.Public().(*ecdh.PublicKey)
+//	if !ok {
+//		// handle unexpected public key type
+//	}
 func (c *Context) GenerateECKeyPair(id []byte, curve elliptic.Curve, typ *EcType) (crypto.PrivateKey, error) {
 	if c.closed.Get() {
 		return nil, errClosed
@@ -163,9 +187,19 @@ func (c *Context) GenerateECKeyPair(id []byte, curve elliptic.Curve, typ *EcType
 	return c.GenerateECKeyPairWithAttributes(public, private, curve, typ)
 }
 
-// GenerateECKeyPairWithLabel creates a EC key pair on the token using curve c. The id and label parameters are used to
-// set CKA_ID and CKA_LABEL respectively and must be non-nil. Only a limited set of named elliptic curves are supported. The
-// underlying PKCS#11 implementation may impose further restrictions.
+// GenerateECKeyPairWithLabel creates an EC key pair on the token using curve.
+//
+// Parameters:
+//   - id sets CKA_ID and must be non-nil.
+//   - label sets CKA_LABEL and must be non-nil.
+//   - curve is the named elliptic curve to generate on token.
+//   - typ declares intended key usage ([ECDH] or [ECDSA]).
+//
+// Return value:
+//   - The returned crypto.PrivateKey must be type-asserted by callers to the interface/struct they need.
+//     For example, for ECDH key agreement you typically assert to [Deriver], and then assert the public
+//     key to [*ecdh.PublicKey]. For ECDSA signing, you typically assert to [Signer] and then assert
+//     the public key to [*ecdsa.PublicKey].
 func (c *Context) GenerateECKeyPairWithLabel(id, label []byte, curve elliptic.Curve, typ *EcType) (crypto.PrivateKey, error) {
 	if c.closed.Get() {
 		return nil, errClosed
@@ -181,9 +215,40 @@ func (c *Context) GenerateECKeyPairWithLabel(id, label []byte, curve elliptic.Cu
 	return c.GenerateECKeyPairWithAttributes(public, private, curve, typ)
 }
 
-// GenerateECKeyPairWithAttributes generates an EC key pair on the token. After this function returns, public and
-// private will contain the attributes applied to the key pair. If required attributes are missing, they will be set to
-// a default value.
+// GenerateECKeyPairWithAttributes generates an EC key pair on the token with caller-provided
+// public/private attribute sets.
+//
+// Parameters:
+//   - public is the attribute set applied to the public key object.
+//   - private is the attribute set applied to the private key object.
+//   - curve is the named elliptic curve used for key generation.
+//   - typ declares intended key usage ([ECDH] or [ECDSA]) and drives default usage attributes.
+//
+// Behavior:
+//   - After this function returns, public and private contain the effective attributes applied
+//     to the generated key objects.
+//   - If required attributes are missing, defaults are applied.
+//
+// Return value:
+//   - The returned crypto.PrivateKey must be type-asserted by callers to the interface/struct they need.
+//     For example, for ECDH key agreement you typically assert to [Deriver], and then assert the public
+//     key to [*ecdh.PublicKey]. For ECDSA signing, you typically assert to [Signer] and then assert
+//     the public key to [*ecdsa.PublicKey].
+//
+// Example:
+//
+//	key, err := ctx.GenerateECKeyPairWithAttributes(publicAttrs, privateAttrs, elliptic.P256(), ECDH)
+//	if err != nil {
+//	// handle error
+//	}
+//	deriver, ok := key.(Deriver)
+//	if !ok {
+//	// handle unexpected key type
+//	}
+//	pub, ok := key.Public().(*ecdh.PublicKey)
+//	if !ok {
+//	// handle unexpected public key type
+//	}
 func (c *Context) GenerateECKeyPairWithAttributes(public, private AttributeSet, curve elliptic.Curve, typ *EcType) (crypto.PrivateKey, error) {
 	if c.closed.Get() {
 		return nil, errClosed
@@ -255,6 +320,11 @@ func (key *pkcs11PrivateKeyEC) Sign(rand io.Reader, digest []byte, opts crypto.S
 	return key.context.dsaGeneric(key.handle, pkcs11.CKM_ECDSA, digest)
 }
 
+// Derive derives a secret key from the given ECDH private key and a public key.
+// The template is used to specify attributes for the derived key,
+// and the cipher is used to specify the intended use of the derived key.
+// The opts argument is used to specify parameters for the derive operation,
+// such as the KDF to use and any KDF-specific parameters.
 func (key *pkcs11PrivateKeyEC) Derive(template AttributeSet, cipher *SymmetricCipher, opts any) (*SecretKey, error) {
 	if key.context.closed.Get() {
 		return nil, errClosed
@@ -271,28 +341,24 @@ func (key *pkcs11PrivateKeyEC) Derive(template AttributeSet, cipher *SymmetricCi
 		template = NewAttributeSet()
 	}
 
-	var mech *pkcs11.Mechanism
-	switch opts.(type) {
+	var (
+		mech    *pkcs11.Mechanism
+		keySize int
+	)
+
+	switch o := opts.(type) {
 	case *pkcs11.ECDH1DeriveParams:
-		mech = pkcs11.NewMechanism(pkcs11.CKM_ECDH1_DERIVE, opts)
+		mech = pkcs11.NewMechanism(pkcs11.CKM_ECDH1_DERIVE, o)
+		l, err := getECDH1KeySize(o.KDF, key.Public())
+		if err != nil {
+			return nil, err
+		}
+		keySize = l
 	default:
 		return nil, errors.New("unsupported ECDH derive parameters")
 	}
 
 	// get the public key attributes to determine the size of the derived secret
-	var bits int
-	switch k := key.pubKey.(type) {
-	case *ecdh.PublicKey:
-		info, ok := wellKnownCurves[fmt.Sprintf("%s", k.Curve())]
-		if !ok || info.curve == nil {
-			return nil, errors.New("unsupported curve for ECDH derive")
-		}
-		bits = info.curve.Params().BitSize
-	case *ecdsa.PublicKey:
-		bits = k.Curve.Params().BitSize
-	default:
-		return nil, errors.New("unsupported public key type for ECDH derive")
-	}
 
 	template.AddIfNotPresent([]*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_SECRET_KEY),
@@ -303,7 +369,7 @@ func (key *pkcs11PrivateKeyEC) Derive(template AttributeSet, cipher *SymmetricCi
 		pkcs11.NewAttribute(pkcs11.CKA_DECRYPT, cipher.Encrypt),
 		pkcs11.NewAttribute(pkcs11.CKA_SENSITIVE, true),
 		pkcs11.NewAttribute(pkcs11.CKA_EXTRACTABLE, false),
-		pkcs11.NewAttribute(pkcs11.CKA_VALUE_LEN, (bits+7)/8),
+		pkcs11.NewAttribute(pkcs11.CKA_VALUE_LEN, keySize),
 	})
 
 	var deriveErr error
@@ -339,4 +405,39 @@ func (key *pkcs11PrivateKeyEC) Derive(template AttributeSet, cipher *SymmetricCi
 	}
 
 	return nil, deriveErr
+}
+
+var wellKnownEcdh1KDFKeySize = map[uint]int{}
+
+// RegisterECDH1CustomKDF allows users to register a custom KDF and key size for ECDH derive operations. '
+// This is necessary for compatibility with some PKCS#11 implementations,
+// such as AWS CloudHSM, that require the use of a custom KDF for ECDH derive operations.
+// The key size is the length in bytes of the derived secret.
+func RegisterECDH1CustomKDF(keyType uint, keySize int) error {
+	if _, ok := wellKnownEcdh1KDFKeySize[keyType]; ok {
+		return errors.Errorf("a key size is already registered for KDF type %d", keyType)
+	}
+
+	wellKnownEcdh1KDFKeySize[keyType] = keySize
+	return nil
+}
+
+func getECDH1KeySize(KDF uint, pubKey crypto.PublicKey) (int, error) {
+	if KDF == pkcs11.CKD_NULL {
+		if k, ok := pubKey.(*ecdh.PublicKey); ok {
+			info, ok := wellKnownCurves[fmt.Sprintf("%s", k.Curve())]
+			if !ok || info.curve == nil {
+				return 0, errors.New("unsupported curve for ECDH derive")
+			}
+			return (info.curve.Params().BitSize + 7) / 8, nil
+		} else {
+			return 0, errors.New("unsupported public key type for ECDH derive")
+		}
+	} else {
+		l, ok := wellKnownEcdh1KDFKeySize[KDF]
+		if !ok {
+			return 0, errors.Errorf("unsupported KDF for ECDH derive: %d", KDF)
+		}
+		return l, nil
+	}
 }
