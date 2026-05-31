@@ -404,7 +404,7 @@ func (key *pkcs11PrivateKeyEC) Derive(template AttributeSet, cipher *SymmetricCi
 		}
 	}
 
-	return nil, deriveErr
+	return nil, errors.New("failed to derive ECDH secret key with any of the provided symmetric cipher generation parameters")
 }
 
 var wellKnownEcdh1KDFKeySize = map[uint]int{}
