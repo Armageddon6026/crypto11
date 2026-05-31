@@ -112,7 +112,7 @@ func exportECPublicKey(session *pkcs11Session, pubHandle pkcs11.ObjectHandle) (c
 	template := []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_EC_PARAMS, nil),
 		pkcs11.NewAttribute(pkcs11.CKA_EC_POINT, nil),
-		pkcs11.NewAttribute(pkcs11.CKA_DERIVE, nil),
+		pkcs11.NewAttribute(pkcs11.CKA_VERIFY, nil),
 	}
 	if attributes, err = session.ctx.GetAttributeValue(session.handle, pubHandle, template); err != nil {
 		return nil, err
@@ -122,16 +122,11 @@ func exportECPublicKey(session *pkcs11Session, pubHandle pkcs11.ObjectHandle) (c
 		return nil, errors.Errorf("expected %d attributes but got %d", len(template), len(attributes))
 	}
 
-	params, point, isDerive := attributes[0], attributes[1], attributes[2]
+	params, point, isVerify := attributes[0], attributes[1], attributes[2]
 
-	if bytesToBool(isDerive.Value) {
-		curve, err := unmarshalEcdhParams(params.Value)
-		if err != nil {
-			return nil, err
-		}
-
-		return unmarshalEcdhPoint(point.Value, curve)
-	} else {
+	// If the key is a verify key, we assume it's an ECDSA public key. Otherwise, we assume it's an ECDH public key.
+	// AWS CloudHSM can not set CKA_DERIVE on ECDH public keys, so we can't rely on that attribute to determine the key type.
+	if bytesToBool(isVerify.Value) {
 		var pub ecdsa.PublicKey
 		if pub.Curve, err = unmarshalEcParams(params.Value); err != nil {
 			return nil, err
@@ -140,8 +135,14 @@ func exportECPublicKey(session *pkcs11Session, pubHandle pkcs11.ObjectHandle) (c
 			return nil, err
 		}
 		return &pub, nil
-	}
+	} else {
+		curve, err := unmarshalEcdhParams(params.Value)
+		if err != nil {
+			return nil, err
+		}
 
+		return unmarshalEcdhPoint(point.Value, curve)
+	}
 }
 
 // GenerateECKeyPair creates a EC key pair on the token using curve c. The id parameter is used to
@@ -186,6 +187,12 @@ func (c *Context) GenerateECKeyPairWithLabel(id, label []byte, curve elliptic.Cu
 func (c *Context) GenerateECKeyPairWithAttributes(public, private AttributeSet, curve elliptic.Curve, typ *EcType) (crypto.PrivateKey, error) {
 	if c.closed.Get() {
 		return nil, errClosed
+	}
+	if typ == nil {
+		return nil, errors.New("ec key type is required")
+	}
+	if curve == nil {
+		return nil, errors.New("elliptic curve is required")
 	}
 
 	var k crypto.PrivateKey
@@ -252,6 +259,17 @@ func (key *pkcs11PrivateKeyEC) Derive(template AttributeSet, cipher *SymmetricCi
 	if key.context.closed.Get() {
 		return nil, errClosed
 	}
+	if cipher == nil {
+		return nil, errors.New("symmetric cipher is required")
+	}
+
+	if len(cipher.GenParams) == 0 {
+		return nil, errors.New("symmetric cipher has no key generation parameters")
+	}
+
+	if template == nil {
+		template = NewAttributeSet()
+	}
 
 	var mech *pkcs11.Mechanism
 	switch opts.(type) {
@@ -269,9 +287,9 @@ func (key *pkcs11PrivateKeyEC) Derive(template AttributeSet, cipher *SymmetricCi
 		if !ok || info.curve == nil {
 			return nil, errors.New("unsupported curve for ECDH derive")
 		}
-		bits = (info.curve.Params().BitSize + 7) / 8
+		bits = info.curve.Params().BitSize
 	case *ecdsa.PublicKey:
-		bits = (k.Curve.Params().BitSize + 7) / 8
+		bits = k.Curve.Params().BitSize
 	default:
 		return nil, errors.New("unsupported public key type for ECDH derive")
 	}
@@ -285,29 +303,40 @@ func (key *pkcs11PrivateKeyEC) Derive(template AttributeSet, cipher *SymmetricCi
 		pkcs11.NewAttribute(pkcs11.CKA_DECRYPT, cipher.Encrypt),
 		pkcs11.NewAttribute(pkcs11.CKA_SENSITIVE, true),
 		pkcs11.NewAttribute(pkcs11.CKA_EXTRACTABLE, false),
-		pkcs11.NewAttribute(pkcs11.CKA_VALUE_LEN, bits),
+		pkcs11.NewAttribute(pkcs11.CKA_VALUE_LEN, (bits+7)/8),
 	})
 
-	var secret *SecretKey
-	err := key.context.withSession(func(session *pkcs11Session) error {
-		keyHandle, err := session.ctx.DeriveKey(session.handle,
-			[]*pkcs11.Mechanism{mech},
-			key.handle,
-			template.ToSlice(),
-		)
-		if err != nil {
-			return err
+	var deriveErr error
+	for _, genMech := range cipher.GenParams {
+		if err := template.Set(pkcs11.CKA_KEY_TYPE, genMech.KeyType); err != nil {
+			return nil, err
 		}
 
-		secret = &SecretKey{
-			pkcs11Object: pkcs11Object{
-				handle:  keyHandle,
-				context: key.context,
-			},
-			Cipher: cipher,
-		}
-		return nil
-	})
+		var secret *SecretKey
+		deriveErr = key.context.withSession(func(session *pkcs11Session) error {
+			keyHandle, err := session.ctx.DeriveKey(session.handle,
+				[]*pkcs11.Mechanism{mech},
+				key.handle,
+				template.ToSlice(),
+			)
+			if err != nil {
+				return err
+			}
 
-	return secret, err
+			secret = &SecretKey{
+				pkcs11Object: pkcs11Object{
+					handle:  keyHandle,
+					context: key.context,
+				},
+				Cipher: cipher,
+			}
+			return nil
+		})
+
+		if deriveErr == nil {
+			return secret, nil
+		}
+	}
+
+	return nil, deriveErr
 }
