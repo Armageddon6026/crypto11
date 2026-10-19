@@ -113,8 +113,8 @@ type MLKEMKeyPair interface {
 // The token must allow reading the public-key value.
 func (k *pkcs11MLKEMEncapsulatorKey) Bytes() ([]byte, error) {
 	var raw []byte
-	err := k.pkcs11Object.context.withSession(func(session *pkcs11Session) error {
-		attrs, err := session.ctx.GetAttributeValue(session.handle, k.pkcs11Object.handle,
+	err := k.context.withSession(func(session *pkcs11Session) error {
+		attrs, err := session.ctx.GetAttributeValue(session.handle, k.handle,
 			[]*pkcs11.Attribute{pkcs11.NewAttribute(pkcs11.CKA_VALUE, nil)})
 		if err != nil {
 			return err
@@ -156,7 +156,7 @@ func (k *pkcs11MLKEMEncapsulatorKey) Encapsulate(sharedSecretAttrs AttributeSet)
 	err := k.context.withSession(func(session *pkcs11Session) error {
 		mech := pkcs11.NewMechanism(pkcs11.CKM_ML_KEM, nil)
 		ct, ssHandle, err := session.ctx.EncapsulateKey(
-			session.handle, mech, k.pkcs11Object.handle, sharedSecretAttrs.ToSlice())
+			session.handle, mech, k.handle, sharedSecretAttrs.ToSlice())
 		if err != nil {
 			return err
 		}
