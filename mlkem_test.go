@@ -40,7 +40,7 @@ func TestMLKEM(t *testing.T) {
 	t.Run("Generate1024", func(t *testing.T) { testMLKEMGenerate(t, ctx, MLKEM1024) })
 	t.Run("RoundTrip", func(t *testing.T) { testMLKEMRoundTrip(t, ctx) })
 	t.Run("EncapsulatorBytesInterop", func(t *testing.T) { testMLKEMEncapsulatorBytesInterop(t, ctx) })
-	t.Run("EncapsulatorByAESGCM", func(t *testing.T) { testMLKEMEEncapsulatorByAESGCM(t, ctx) })
+	t.Run("EncapsulatorByAESGCM", func(t *testing.T) { testMLKEMEncapsulatorByAESGCM(t, ctx) })
 	t.Run("FindByID", func(t *testing.T) { testMLKEMFindByID(t, ctx) })
 	t.Run("FindByLabel", func(t *testing.T) { testMLKEMFindByLabel(t, ctx) })
 	t.Run("Delete", func(t *testing.T) { testMLKEMDelete(t, ctx) })
@@ -285,10 +285,10 @@ func testMLKEMEncapsulatorBytesInterop(t *testing.T, ctx *Context) {
 	assert.Len(t, encapBytes, 32, "shared secret should be 32 bytes for AES-256 template")
 }
 
-// testMLKEMEEncapsulatorByAESGCM checks that a secret encapsulated on the token
+// testMLKEMEncapsulatorByAESGCM checks that a secret encapsulated on the token
 // matches the secret recovered by decapsulation, without reading the
 // encapsulated key back from the token.
-func testMLKEMEEncapsulatorByAESGCM(t *testing.T, ctx *Context) {
+func testMLKEMEncapsulatorByAESGCM(t *testing.T, ctx *Context) {
 	t.Helper()
 	id := randomBytes()
 	key, err := ctx.GenerateMLKEMKeyPair(id, MLKEM768)
@@ -318,12 +318,12 @@ func testMLKEMEEncapsulatorByAESGCM(t *testing.T, ctx *Context) {
 	require.NoError(t, err)
 	deAead, err := cipher.NewGCM(block)
 	require.NoError(t, err)
+
 	nonce := make([]byte, deAead.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		require.NoError(t, err)
-	}
-	encryptedData := deAead.Seal([]byte{}, nonce, testBytes, nil)
+	_, err = rand.Read(nonce)
 	require.NoError(t, err)
+
+	encryptedData := deAead.Seal([]byte{}, nonce, testBytes, nil)
 
 	// The token-held encapsulated key must decrypt the ciphertext.
 	enAead, err := encapSS.NewGCM()
