@@ -76,7 +76,7 @@ Requires a PKCS#11 v3.2-capable token such as [SoftHSMv3](https://github.com/pqc
 
 | Algorithm | Key sizes         | Modes    | Notes                                                       |
 |-----------|-------------------|----------|-------------------------------------------------------------|
-| AES       | 128, 192, 256 bit | CBC, GCM | `cipher.Block`, `cipher.BlockMode`, `BlockModeCloser`, AEAD |
+| AES       | 128, 192, 256 bit | CBC, GCM | `cipher.BlockMode`, `BlockModeCloser`, `cipher.AEAD`        |
 | DES3      | 192 bit           | CBC      | Token support varies                                        |
 
 ## Other
@@ -459,11 +459,12 @@ Beware that a lot of unit tests may fail otherwise. You must fine-tune your usec
   The reason for this is that it is not possible for crypto11 to guarantee the constant-time behavior in the
   specification.
   See [issue #5](https://github.com/eclipse-keypont/crypto11/issues/5) for further discussion.
-* Symmetric crypto support via [cipher.Block](https://golang.org/pkg/crypto/cipher/#Block) is very slow.
-  You can use the `BlockModeCloser` API
-  (over 400 times as fast on my computer)
-  but you must call the Close()
-  interface (not found in [cipher.BlockMode](https://golang.org/pkg/crypto/cipher/#BlockMode)).
+* `SecretKey` is not a [cipher.Block](https://golang.org/pkg/crypto/cipher/#Block): each block
+  would cost a round trip to the token. CBC runs on the token through
+  [cipher.BlockMode](https://golang.org/pkg/crypto/cipher/#BlockMode) instead (`NewCBCEncrypter`,
+  `NewCBCDecrypter`). Prefer the `BlockModeCloser` variants (`NewCBCEncrypterCloser`,
+  `NewCBCDecrypterCloser`) and call `Close()`, which `cipher.BlockMode` does not have: the plain
+  variants hold a session until the garbage collector finalizes them.
   See [issue #6](https://github.com/eclipse-keypont/crypto11/issues/6) for further discussion.
 * Unit tests may interfere between them. You should fine tune and select the Go test file you want to run, one at a
   time.

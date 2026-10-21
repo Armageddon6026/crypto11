@@ -241,6 +241,14 @@ reporting or the Eclipse Foundation security team — and which versions receive
 
 ### Changed
 
+- **HMAC key generation tries the PKCS#11 v3.0 mechanisms first.** `CipherHMACSHA1` …
+  `CipherHMACSHA512` now list `CKM_SHA_1_KEY_GEN` … `CKM_SHA512_KEY_GEN`, which v3.0
+  standardised for `CKK_SHA*_HMAC` keys, ahead of the nShield vendor mechanisms and the
+  `CKM_GENERIC_SECRET_KEY_GEN` fallback. Key generation also skips a (key type, mechanism) pair
+  the token reports as `CKR_MECHANISM_INVALID` from `C_GetMechanismInfo`, instead of calling
+  `C_GenerateKey` with it. A vendor-defined mechanism number now reaches only a token that
+  reports supporting it, rather than every token, where the same number can mean something
+  else. The last pair is always tried, so the error a caller sees is still the token's own.
 - **crypto11 no longer contains any cgo of its own.** The `CK_ULONG` conversions were the last
   `import "C"` in the package; they now delegate to `cryptoki.ULongToBytes` / `cryptoki.BytesToULong`,
   added in pkcs11-go v1.1.0. This release requires v1.2.0-rc3, which carries the binding's own

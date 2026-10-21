@@ -68,9 +68,12 @@
 // The reason for this is that it is not possible for crypto11 to guarantee the constant-time behavior in the specification.
 // See https://github.com/eclipse-keypont/crypto11/issues/5 for further discussion.
 //
-// Symmetric crypto support via cipher.Block is very slow.
-// You can use the BlockModeCloser API
-// but you must call the Close() interface (not found in cipher.BlockMode).
+// SecretKey is not a cipher.Block: each block would cost a round trip to the
+// token. CBC runs on the token through cipher.BlockMode instead
+// (NewCBCEncrypter, NewCBCDecrypter). Prefer the BlockModeCloser variants
+// (NewCBCEncrypterCloser, NewCBCDecrypterCloser) and call Close, which
+// cipher.BlockMode does not have: the plain variants hold a session until the
+// garbage collector finalizes them.
 // See https://github.com/eclipse-keypont/crypto11/issues/6 for further discussion.
 package crypto11
 
