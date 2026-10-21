@@ -68,7 +68,7 @@ func TestECDSATemplateCurveOverridesArgument(t *testing.T) {
 		require.NoError(t, err)
 		params, err := marshalEcParams(elliptic.P384())
 		require.NoError(t, err)
-		require.NoError(t, public.Set(CkaEcParams, params))
+		require.NoError(t, public.Set(pkcs11.CKA_EC_PARAMS, params))
 		// CKA_EC_PARAMS belongs on the public template only.
 		private, err := NewAttributeSetWithID(id)
 		require.NoError(t, err)
@@ -86,7 +86,7 @@ func TestMLKEMTemplateParameterSetMustMatch(t *testing.T) {
 	public, err := NewAttributeSetWithID([]byte("id"))
 	require.NoError(t, err)
 	private := public.Copy()
-	require.NoError(t, private.Set(CkaParameterSet, MLKEM512))
+	require.NoError(t, private.Set(pkcs11.CKA_PARAMETER_SET, MLKEM512))
 
 	_, err = ctx.GenerateMLKEMKeyPairWithAttributes(public, private, MLKEM1024)
 	require.Error(t, err)
@@ -100,7 +100,7 @@ func TestMLKEMTemplateParameterSetAgreeing(t *testing.T) {
 		public, err := NewAttributeSetWithID(randomBytes())
 		require.NoError(t, err)
 		private := public.Copy()
-		require.NoError(t, private.Set(CkaParameterSet, MLKEM768))
+		require.NoError(t, private.Set(pkcs11.CKA_PARAMETER_SET, MLKEM768))
 
 		key, err := ctx.GenerateMLKEMKeyPairWithAttributes(public, private, MLKEM768)
 		if err != nil {

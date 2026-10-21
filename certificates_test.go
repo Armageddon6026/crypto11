@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	pkcs11 "github.com/eclipse-keypont/pkcs11-go/cryptoki"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -70,7 +71,7 @@ func TestCertificateAttributes(t *testing.T) {
 	require.NoError(t, err)
 
 	template := NewAttributeSet()
-	err = template.Set(CkaSerialNumber, derSerial)
+	err = template.Set(pkcs11.CKA_SERIAL_NUMBER, derSerial)
 	require.NoError(t, err)
 
 	err = ctx.ImportCertificateWithAttributes(template, cert)
@@ -427,11 +428,11 @@ func TestFindCertificateChainFallsBackToKeyID(t *testing.T) {
 		require.NoError(t, err)
 
 		// A subject the issuer search cannot match, leaving only the key identifier.
-		require.NoError(t, template.Set(CkaSubject, randomBytes()))
+		require.NoError(t, template.Set(pkcs11.CKA_SUBJECT, randomBytes()))
 		require.NoError(t, ctx.ImportCertificateWithAttributes(template, chain[1].cert))
 
 		id := importCert(t, ctx, chain[0].cert)
-		defer deleteCerts(t, ctx, [][]byte{id, template[CkaId].Value})
+		defer deleteCerts(t, ctx, [][]byte{id, template[pkcs11.CKA_ID].Value})
 
 		got, err := ctx.FindCertificateChain(id, nil, nil)
 		require.NoError(t, err)

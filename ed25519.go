@@ -140,7 +140,7 @@ func (c *Context) GenerateEd25519KeyPairWithAttributes(public, private Attribute
 		pkcs11.NewAttribute(pkcs11.CKA_EXTRACTABLE, false),
 	})
 
-	if params := public[CkaEcParams].Value; !isEd25519Params(params) {
+	if params := public[pkcs11.CKA_EC_PARAMS].Value; !isEd25519Params(params) {
 		return nil, fmt.Errorf("%w: CKA_EC_PARAMS %x is not Ed25519", errUnsupportedEllipticCurve, params)
 	}
 

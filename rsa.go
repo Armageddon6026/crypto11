@@ -230,13 +230,13 @@ func (c *Context) FindRSAPrivateKeys(id []byte, label []byte) (pks []RSAPrivateK
 	attributes := NewAttributeSet()
 
 	if len(id) > 0 {
-		err = attributes.Set(CkaId, id)
+		err = attributes.Set(pkcs11.CKA_ID, id)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if len(label) > 0 {
-		err = attributes.Set(CkaLabel, label)
+		err = attributes.Set(pkcs11.CKA_LABEL, label)
 		if err != nil {
 			return nil, err
 		}
@@ -258,14 +258,14 @@ func (c *Context) FindRSAPrivateKeysWithAttributes(attributes AttributeSet) (pks
 
 	var keys []RSAPrivateKey
 
-	if _, ok := attributes[CkaClass]; ok {
+	if _, ok := attributes[pkcs11.CKA_CLASS]; ok {
 		return nil, fmt.Errorf("keypair attribute set must not contain CkaClass")
 	}
 
 	err = c.withSession(func(session *pkcs11Session) error {
 		// Add the private key class to the template to find the private half
 		privAttributes := attributes.Copy()
-		err = privAttributes.Set(CkaClass, pkcs11.CKO_PRIVATE_KEY)
+		err = privAttributes.Set(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY)
 		if err != nil {
 			return err
 		}
@@ -367,13 +367,13 @@ func (c *Context) FindRSAKeyPairs(id []byte, label []byte) (signer []SignerDecry
 	attributes := NewAttributeSet()
 
 	if len(id) > 0 {
-		err = attributes.Set(CkaId, id)
+		err = attributes.Set(pkcs11.CKA_ID, id)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if len(label) > 0 {
-		err = attributes.Set(CkaLabel, label)
+		err = attributes.Set(pkcs11.CKA_LABEL, label)
 		if err != nil {
 			return nil, err
 		}
@@ -398,14 +398,14 @@ func (c *Context) FindRSAKeyPairsWithAttributes(attributes AttributeSet) (signer
 
 	var keys []SignerDecrypter
 
-	if _, ok := attributes[CkaClass]; ok {
+	if _, ok := attributes[pkcs11.CKA_CLASS]; ok {
 		return nil, fmt.Errorf("keypair attribute set must not contain CkaClass")
 	}
 
 	err = c.withSession(func(session *pkcs11Session) error {
 		// Add the private key class to the template to find the private half
 		privAttributes := attributes.Copy()
-		err = privAttributes.Set(CkaClass, pkcs11.CKO_PRIVATE_KEY)
+		err = privAttributes.Set(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY)
 		if err != nil {
 			return err
 		}

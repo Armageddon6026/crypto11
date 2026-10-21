@@ -309,13 +309,13 @@ func (c *Context) FindKeyPairs(id []byte, label []byte) (signer []Signer, err er
 	attributes := NewAttributeSet()
 
 	if len(id) > 0 {
-		err = attributes.Set(CkaId, id)
+		err = attributes.Set(pkcs11.CKA_ID, id)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if len(label) > 0 {
-		err = attributes.Set(CkaLabel, label)
+		err = attributes.Set(pkcs11.CKA_LABEL, label)
 		if err != nil {
 			return nil, err
 		}
@@ -366,14 +366,14 @@ func (c *Context) FindKeyPairsWithAttributes(attributes AttributeSet) (signer []
 
 	var keys []Signer
 
-	if _, ok := attributes[CkaClass]; ok {
+	if _, ok := attributes[pkcs11.CKA_CLASS]; ok {
 		return nil, errors.New("keypair attribute set must not contain CkaClass")
 	}
 
 	err = c.withSession(func(session *pkcs11Session) error {
 		// Add the private key class to the template to find the private half
 		privAttributes := attributes.Copy()
-		err = privAttributes.Set(CkaClass, pkcs11.CKO_PRIVATE_KEY)
+		err = privAttributes.Set(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY)
 		if err != nil {
 			return err
 		}
@@ -467,13 +467,13 @@ func (c *Context) FindKeys(id []byte, label []byte) (key []*SecretKey, err error
 	attributes := NewAttributeSet()
 
 	if len(id) > 0 {
-		err = attributes.Set(CkaId, id)
+		err = attributes.Set(pkcs11.CKA_ID, id)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if len(label) > 0 {
-		err = attributes.Set(CkaLabel, label)
+		err = attributes.Set(pkcs11.CKA_LABEL, label)
 		if err != nil {
 			return nil, err
 		}
@@ -509,14 +509,14 @@ func (c *Context) FindKeysWithAttributes(attributes AttributeSet) ([]*SecretKey,
 
 	var keys []*SecretKey
 
-	if _, ok := attributes[CkaClass]; ok {
+	if _, ok := attributes[pkcs11.CKA_CLASS]; ok {
 		return nil, errors.New("key attribute set must not contain CkaClass")
 	}
 
 	err := c.withSession(func(session *pkcs11Session) error {
 		// Add the private key class to the template to find the private half
 		privAttributes := attributes.Copy()
-		err := privAttributes.Set(CkaClass, pkcs11.CKO_SECRET_KEY)
+		err := privAttributes.Set(pkcs11.CKA_CLASS, pkcs11.CKO_SECRET_KEY)
 		if err != nil {
 			return err
 		}
@@ -639,13 +639,13 @@ func (c *Context) FindPrivateKeys(id []byte, label []byte) (signer []PrivateKey,
 	attributes := NewAttributeSet()
 
 	if len(id) > 0 {
-		err = attributes.Set(CkaId, id)
+		err = attributes.Set(pkcs11.CKA_ID, id)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if len(label) > 0 {
-		err = attributes.Set(CkaLabel, label)
+		err = attributes.Set(pkcs11.CKA_LABEL, label)
 		if err != nil {
 			return nil, err
 		}
@@ -683,14 +683,14 @@ func (c *Context) FindPrivateKeysWithAttributes(attributes AttributeSet) (signer
 
 	var keys []PrivateKey
 
-	if _, ok := attributes[CkaClass]; ok {
+	if _, ok := attributes[pkcs11.CKA_CLASS]; ok {
 		return nil, errors.New("keypair attribute set must not contain CkaClass")
 	}
 
 	err = c.withSession(func(session *pkcs11Session) error {
 		// Add the private key class to the template to find the private half
 		privAttributes := attributes.Copy()
-		err = privAttributes.Set(CkaClass, pkcs11.CKO_PRIVATE_KEY)
+		err = privAttributes.Set(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY)
 		if err != nil {
 			return err
 		}

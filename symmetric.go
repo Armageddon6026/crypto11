@@ -295,7 +295,7 @@ func (c *Context) GenerateSecretKeyWithAttributes(template AttributeSet, bits in
 
 		for n, genMech := range cipher.GenParams {
 
-			_ = template.Set(CkaKeyType, genMech.KeyType)
+			_ = template.Set(pkcs11.CKA_KEY_TYPE, genMech.KeyType)
 
 			mech := pkcs11.NewMechanism(genMech.GenMech, nil)
 
@@ -310,8 +310,8 @@ func (c *Context) GenerateSecretKeyWithAttributes(template AttributeSet, bits in
 			var e pkcs11.Error
 			if errors.As(err, &e) && e == pkcs11.CKR_ARGUMENTS_BAD && genMech.GenMech == pkcs11.CKM_GENERIC_SECRET_KEY_GEN {
 				adjustedTemplate := template.Copy()
-				adjustedTemplate.Unset(CkaEncrypt)
-				adjustedTemplate.Unset(CkaDecrypt)
+				adjustedTemplate.Unset(pkcs11.CKA_ENCRYPT)
+				adjustedTemplate.Unset(pkcs11.CKA_DECRYPT)
 
 				privHandle, err = session.ctx.GenerateKey(session.handle, mech, adjustedTemplate.ToSlice())
 				if err == nil {

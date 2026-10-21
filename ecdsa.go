@@ -258,7 +258,7 @@ func (c *Context) GenerateECDSAKeyPairWithAttributes(public, private AttributeSe
 		// since a Signer cannot be built without it: finding that out after
 		// C_GenerateKeyPair used to leave two token objects behind on every
 		// attempt.
-		requested, err := unmarshalEcParams(public[CkaEcParams].Value)
+		requested, err := unmarshalEcParams(public[pkcs11.CKA_EC_PARAMS].Value)
 		if err != nil {
 			return err
 		}

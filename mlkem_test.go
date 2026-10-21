@@ -16,12 +16,12 @@ import (
 // extractable AES-256 key suitable for round-trip testing.
 func mlkemSharedSecretTemplate() AttributeSet {
 	a := NewAttributeSet()
-	_ = a.Set(CkaClass, pkcs11.CKO_SECRET_KEY)
-	_ = a.Set(CkaKeyType, pkcs11.CKK_AES)
-	_ = a.Set(CkaValueLen, 32)
-	_ = a.Set(CkaToken, false)
-	_ = a.Set(CkaSensitive, false)
-	_ = a.Set(CkaExtractable, true)
+	_ = a.Set(pkcs11.CKA_CLASS, pkcs11.CKO_SECRET_KEY)
+	_ = a.Set(pkcs11.CKA_KEY_TYPE, pkcs11.CKK_AES)
+	_ = a.Set(pkcs11.CKA_VALUE_LEN, 32)
+	_ = a.Set(pkcs11.CKA_TOKEN, false)
+	_ = a.Set(pkcs11.CKA_SENSITIVE, false)
+	_ = a.Set(pkcs11.CKA_EXTRACTABLE, true)
 	return a
 }
 
@@ -52,8 +52,8 @@ func testMLKEMNonExtractableSecret(t *testing.T, ctx *Context) {
 	defer func() { _ = key.Delete() }()
 
 	ssTemplate := mlkemSharedSecretTemplate()
-	require.NoError(t, ssTemplate.Set(CkaExtractable, false))
-	require.NoError(t, ssTemplate.Set(CkaSensitive, true))
+	require.NoError(t, ssTemplate.Set(pkcs11.CKA_EXTRACTABLE, false))
+	require.NoError(t, ssTemplate.Set(pkcs11.CKA_SENSITIVE, true))
 
 	_, ss, err := key.Encapsulate(ssTemplate)
 	require.NoError(t, err)

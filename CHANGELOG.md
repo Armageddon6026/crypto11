@@ -271,6 +271,21 @@ reporting or the Eclipse Foundation security team — and which versions receive
   scan with an import error. Move back to a tagged release once one ships
   `x/tools` >= v0.50.0.
 
+### Deprecated
+
+- **The `Cka*` attribute constants.** They were a hand-copied list of `CKA_*` values that had
+  fallen behind the specification: 111 of the 160 attributes in the PKCS#11 v3.2 header, missing
+  `CKA_UNIQUE_ID`, `CKA_PROFILE_ID`, `CKA_SEED`, `CKA_PUBLIC_CRC64_VALUE` and the validation and
+  trust attributes. The pkcs11-go binding's `cryptoki` package is generated from that header
+  and defines all of them, so each `Cka*` constant is now defined from the binding's constant of
+  the same name, keeping its `AttributeType` type (`CkaLabel = AttributeType(pkcs11.CKA_LABEL)`),
+  and marked deprecated. Existing code compiles and behaves as before; new code should use
+  `pkcs11.CKA_*` directly, which `AttributeSet.Set` and every other `AttributeType` parameter
+  already accept. crypto11 itself now uses the binding's
+  constants throughout. `AttributeSet.String` still renders the old `Cka*` names; switching it to
+  the binding's generated names (`cryptoki.AttributeName`) waits on the pkcs11-go release that
+  adds them.
+
 ### CI/CD & supply chain
 
 - Unified security/quality pipeline shared across the pkcs11-go / crypto11 / gose projects:

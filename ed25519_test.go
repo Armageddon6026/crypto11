@@ -177,15 +177,15 @@ func TestEd25519Attributes(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = key.Delete() }()
 
-	attrs, err := ctx.GetAttributes(key, []AttributeType{CkaKeyType, CkaEcParams})
+	attrs, err := ctx.GetAttributes(key, []AttributeType{pkcs11.CKA_KEY_TYPE, pkcs11.CKA_EC_PARAMS})
 	require.NoError(t, err)
-	assert.Equal(t, uint(pkcs11.CKK_EC_EDWARDS), pkcs11.BytesToULong(attrs[CkaKeyType].Value))
+	assert.Equal(t, uint(pkcs11.CKK_EC_EDWARDS), pkcs11.BytesToULong(attrs[pkcs11.CKA_KEY_TYPE].Value))
 	// SoftHSM2 stores it as the curve name, not the OID.
-	assert.True(t, isEd25519Params(attrs[CkaEcParams].Value), "CKA_EC_PARAMS %x", attrs[CkaEcParams].Value)
+	assert.True(t, isEd25519Params(attrs[pkcs11.CKA_EC_PARAMS].Value), "CKA_EC_PARAMS %x", attrs[pkcs11.CKA_EC_PARAMS].Value)
 
-	pubAttrs, err := ctx.GetPubAttributes(key, []AttributeType{CkaEcPoint})
+	pubAttrs, err := ctx.GetPubAttributes(key, []AttributeType{pkcs11.CKA_EC_POINT})
 	require.NoError(t, err)
-	point, err := unmarshalEd25519Point(pubAttrs[CkaEcPoint].Value)
+	point, err := unmarshalEd25519Point(pubAttrs[pkcs11.CKA_EC_POINT].Value)
 	require.NoError(t, err)
 	assert.Equal(t, key.Public(), point)
 }
@@ -271,7 +271,7 @@ func TestEd25519TemplateCurveName(t *testing.T) {
 	id := randomBytes()
 	public, err := NewAttributeSetWithID(id)
 	require.NoError(t, err)
-	require.NoError(t, public.Set(CkaEcParams, ed25519CurveName))
+	require.NoError(t, public.Set(pkcs11.CKA_EC_PARAMS, ed25519CurveName))
 	private, err := NewAttributeSetWithID(id)
 	require.NoError(t, err)
 
@@ -291,7 +291,7 @@ func TestEd25519RejectsEd448TemplateBeforeGeneration(t *testing.T) {
 	id := randomBytes()
 	public, err := NewAttributeSetWithID(id)
 	require.NoError(t, err)
-	require.NoError(t, public.Set(CkaEcParams, ed448OID))
+	require.NoError(t, public.Set(pkcs11.CKA_EC_PARAMS, ed448OID))
 	private, err := NewAttributeSetWithID(id)
 	require.NoError(t, err)
 

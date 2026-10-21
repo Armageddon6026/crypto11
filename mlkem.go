@@ -208,7 +208,7 @@ func (c *Context) GenerateMLKEMKeyPairWithAttributes(public, private AttributeSe
 	// pair reported paramSet. There is one effective level; both inputs have
 	// to agree on it.
 	for _, template := range []AttributeSet{public, private} {
-		if attr, ok := template[CkaParameterSet]; ok && pkcs11.BytesToULong(attr.Value) != paramSet {
+		if attr, ok := template[pkcs11.CKA_PARAMETER_SET]; ok && pkcs11.BytesToULong(attr.Value) != paramSet {
 			return nil, fmt.Errorf("template CKA_PARAMETER_SET %#x conflicts with requested parameter set %#x",
 				pkcs11.BytesToULong(attr.Value), paramSet)
 		}
@@ -218,7 +218,7 @@ func (c *Context) GenerateMLKEMKeyPairWithAttributes(public, private AttributeSe
 	// private ML-KEM object ("MUST not be specified when generated") and rejects
 	// a private template that carries it with CKR_ATTRIBUTE_READ_ONLY, so drop it
 	// from the private template even when the caller supplied it.
-	private.Unset(CkaParameterSet)
+	private.Unset(pkcs11.CKA_PARAMETER_SET)
 	var k MLKEMKeyPair
 	err := c.withSession(func(session *pkcs11Session) error {
 		public.AddIfNotPresent([]*pkcs11.Attribute{
@@ -330,12 +330,12 @@ func (c *Context) FindMLKEMKeyPairs(id, label []byte) ([]MLKEMKeyPair, error) {
 	}
 	attributes := NewAttributeSet()
 	if len(id) > 0 {
-		if err := attributes.Set(CkaId, id); err != nil {
+		if err := attributes.Set(pkcs11.CKA_ID, id); err != nil {
 			return nil, err
 		}
 	}
 	if len(label) > 0 {
-		if err := attributes.Set(CkaLabel, label); err != nil {
+		if err := attributes.Set(pkcs11.CKA_LABEL, label); err != nil {
 			return nil, err
 		}
 	}
@@ -349,17 +349,17 @@ func (c *Context) FindMLKEMKeyPairsWithAttributes(attributes AttributeSet) ([]ML
 	if c.closed.Get() {
 		return nil, errClosed
 	}
-	if _, ok := attributes[CkaClass]; ok {
+	if _, ok := attributes[pkcs11.CKA_CLASS]; ok {
 		return nil, fmt.Errorf("keypair attribute set must not contain CkaClass")
 	}
 
 	var keys []MLKEMKeyPair
 	err := c.withSession(func(session *pkcs11Session) error {
 		privAttrs := attributes.Copy()
-		if err := privAttrs.Set(CkaClass, pkcs11.CKO_PRIVATE_KEY); err != nil {
+		if err := privAttrs.Set(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY); err != nil {
 			return err
 		}
-		if err := privAttrs.Set(CkaKeyType, pkcs11.CKK_ML_KEM); err != nil {
+		if err := privAttrs.Set(pkcs11.CKA_KEY_TYPE, pkcs11.CKK_ML_KEM); err != nil {
 			return err
 		}
 

@@ -17,144 +17,152 @@ type AttributeType = uint
 // Attribute represents a PKCS#11 CK_ATTRIBUTE type.
 type Attribute = pkcs11.Attribute
 
-// noinspection GoUnusedConst,GoDeprecation
+// The Cka* constants predate crypto11's move to the pkcs11-go binding, whose
+// cryptoki package is generated from the OASIS PKCS #11 v3.2 header and defines
+// every CKA_* attribute, including the ones added since this list was written
+// (CKA_UNIQUE_ID, CKA_PROFILE_ID, CKA_SEED, CKA_PUBLIC_CRC64_VALUE, ...). Each
+// Cka* constant is now the binding's constant of the same name, still typed
+// AttributeType, so code using them keeps compiling and behaves as before. The
+// binding's constants are untyped, so they can be passed anywhere an
+// AttributeType is expected.
+//
+// Deprecated: Use the CKA_* constants of github.com/eclipse-keypont/pkcs11-go/cryptoki,
+// e.g. pkcs11.CKA_LABEL instead of CkaLabel.
 const (
-	CkaClass                  = AttributeType(0x00000000)
-	CkaToken                  = AttributeType(0x00000001)
-	CkaPrivate                = AttributeType(0x00000002)
-	CkaLabel                  = AttributeType(0x00000003)
-	CkaApplication            = AttributeType(0x00000010)
-	CkaValue                  = AttributeType(0x00000011)
-	CkaObjectId               = AttributeType(0x00000012)
-	CkaCertificateType        = AttributeType(0x00000080)
-	CkaIssuer                 = AttributeType(0x00000081)
-	CkaSerialNumber           = AttributeType(0x00000082)
-	CkaAcIssuer               = AttributeType(0x00000083)
-	CkaOwner                  = AttributeType(0x00000084)
-	CkaAttrTypes              = AttributeType(0x00000085)
-	CkaTrusted                = AttributeType(0x00000086)
-	CkaCertificateCategory    = AttributeType(0x00000087)
-	CkaJavaMIDPSecurityDomain = AttributeType(0x00000088)
-	CkaUrl                    = AttributeType(0x00000089)
-	CkaHashOfSubjectPublicKey = AttributeType(0x0000008A)
-	CkaHashOfIssuerPublicKey  = AttributeType(0x0000008B)
-	CkaNameHashAlgorithm      = AttributeType(0x0000008C)
-	CkaCheckValue             = AttributeType(0x00000090)
+	CkaClass                  = AttributeType(pkcs11.CKA_CLASS)
+	CkaToken                  = AttributeType(pkcs11.CKA_TOKEN)
+	CkaPrivate                = AttributeType(pkcs11.CKA_PRIVATE)
+	CkaLabel                  = AttributeType(pkcs11.CKA_LABEL)
+	CkaApplication            = AttributeType(pkcs11.CKA_APPLICATION)
+	CkaValue                  = AttributeType(pkcs11.CKA_VALUE)
+	CkaObjectId               = AttributeType(pkcs11.CKA_OBJECT_ID)
+	CkaCertificateType        = AttributeType(pkcs11.CKA_CERTIFICATE_TYPE)
+	CkaIssuer                 = AttributeType(pkcs11.CKA_ISSUER)
+	CkaSerialNumber           = AttributeType(pkcs11.CKA_SERIAL_NUMBER)
+	CkaAcIssuer               = AttributeType(pkcs11.CKA_AC_ISSUER)
+	CkaOwner                  = AttributeType(pkcs11.CKA_OWNER)
+	CkaAttrTypes              = AttributeType(pkcs11.CKA_ATTR_TYPES)
+	CkaTrusted                = AttributeType(pkcs11.CKA_TRUSTED)
+	CkaCertificateCategory    = AttributeType(pkcs11.CKA_CERTIFICATE_CATEGORY)
+	CkaJavaMIDPSecurityDomain = AttributeType(pkcs11.CKA_JAVA_MIDP_SECURITY_DOMAIN)
+	CkaUrl                    = AttributeType(pkcs11.CKA_URL)
+	CkaHashOfSubjectPublicKey = AttributeType(pkcs11.CKA_HASH_OF_SUBJECT_PUBLIC_KEY)
+	CkaHashOfIssuerPublicKey  = AttributeType(pkcs11.CKA_HASH_OF_ISSUER_PUBLIC_KEY)
+	CkaNameHashAlgorithm      = AttributeType(pkcs11.CKA_NAME_HASH_ALGORITHM)
+	CkaCheckValue             = AttributeType(pkcs11.CKA_CHECK_VALUE)
 
-	CkaKeyType         = AttributeType(0x00000100)
-	CkaSubject         = AttributeType(0x00000101)
-	CkaId              = AttributeType(0x00000102)
-	CkaSensitive       = AttributeType(0x00000103)
-	CkaEncrypt         = AttributeType(0x00000104)
-	CkaDecrypt         = AttributeType(0x00000105)
-	CkaWrap            = AttributeType(0x00000106)
-	CkaUnwrap          = AttributeType(0x00000107)
-	CkaSign            = AttributeType(0x00000108)
-	CkaSignRecover     = AttributeType(0x00000109)
-	CkaVerify          = AttributeType(0x0000010A)
-	CkaVerifyRecover   = AttributeType(0x0000010B)
-	CkaDerive          = AttributeType(0x0000010C)
-	CkaStartDate       = AttributeType(0x00000110)
-	CkaEndDate         = AttributeType(0x00000111)
-	CkaModulus         = AttributeType(0x00000120)
-	CkaModulusBits     = AttributeType(0x00000121)
-	CkaPublicExponent  = AttributeType(0x00000122)
-	CkaPrivateExponent = AttributeType(0x00000123)
-	CkaPrime1          = AttributeType(0x00000124)
-	CkaPrime2          = AttributeType(0x00000125)
-	CkaExponent1       = AttributeType(0x00000126)
-	CkaExponent2       = AttributeType(0x00000127)
-	CkaCoefficient     = AttributeType(0x00000128)
-	CkaPublicKeyInfo   = AttributeType(0x00000129)
-	CkaPrime           = AttributeType(0x00000130)
-	CkaSubprime        = AttributeType(0x00000131)
-	CkaBase            = AttributeType(0x00000132)
+	CkaKeyType         = AttributeType(pkcs11.CKA_KEY_TYPE)
+	CkaSubject         = AttributeType(pkcs11.CKA_SUBJECT)
+	CkaId              = AttributeType(pkcs11.CKA_ID)
+	CkaSensitive       = AttributeType(pkcs11.CKA_SENSITIVE)
+	CkaEncrypt         = AttributeType(pkcs11.CKA_ENCRYPT)
+	CkaDecrypt         = AttributeType(pkcs11.CKA_DECRYPT)
+	CkaWrap            = AttributeType(pkcs11.CKA_WRAP)
+	CkaUnwrap          = AttributeType(pkcs11.CKA_UNWRAP)
+	CkaSign            = AttributeType(pkcs11.CKA_SIGN)
+	CkaSignRecover     = AttributeType(pkcs11.CKA_SIGN_RECOVER)
+	CkaVerify          = AttributeType(pkcs11.CKA_VERIFY)
+	CkaVerifyRecover   = AttributeType(pkcs11.CKA_VERIFY_RECOVER)
+	CkaDerive          = AttributeType(pkcs11.CKA_DERIVE)
+	CkaStartDate       = AttributeType(pkcs11.CKA_START_DATE)
+	CkaEndDate         = AttributeType(pkcs11.CKA_END_DATE)
+	CkaModulus         = AttributeType(pkcs11.CKA_MODULUS)
+	CkaModulusBits     = AttributeType(pkcs11.CKA_MODULUS_BITS)
+	CkaPublicExponent  = AttributeType(pkcs11.CKA_PUBLIC_EXPONENT)
+	CkaPrivateExponent = AttributeType(pkcs11.CKA_PRIVATE_EXPONENT)
+	CkaPrime1          = AttributeType(pkcs11.CKA_PRIME_1)
+	CkaPrime2          = AttributeType(pkcs11.CKA_PRIME_2)
+	CkaExponent1       = AttributeType(pkcs11.CKA_EXPONENT_1)
+	CkaExponent2       = AttributeType(pkcs11.CKA_EXPONENT_2)
+	CkaCoefficient     = AttributeType(pkcs11.CKA_COEFFICIENT)
+	CkaPublicKeyInfo   = AttributeType(pkcs11.CKA_PUBLIC_KEY_INFO)
+	CkaPrime           = AttributeType(pkcs11.CKA_PRIME)
+	CkaSubprime        = AttributeType(pkcs11.CKA_SUBPRIME)
+	CkaBase            = AttributeType(pkcs11.CKA_BASE)
 
-	CkaPrimeBits    = AttributeType(0x00000133)
-	CkaSubprimeBits = AttributeType(0x00000134)
+	CkaPrimeBits    = AttributeType(pkcs11.CKA_PRIME_BITS)
+	CkaSubprimeBits = AttributeType(pkcs11.CKA_SUBPRIME_BITS)
 	/* (To retain backwards-compatibility) */
-	CkaSubPrimeBits = CkaSubprimeBits
+	CkaSubPrimeBits = AttributeType(pkcs11.CKA_SUB_PRIME_BITS)
 
-	CkaValueBits        = AttributeType(0x00000160)
-	CkaValueLen         = AttributeType(0x00000161)
-	CkaExtractable      = AttributeType(0x00000162)
-	CkaLocal            = AttributeType(0x00000163)
-	CkaNeverExtractable = AttributeType(0x00000164)
-	CkaAlwaysSensitive  = AttributeType(0x00000165)
-	CkaKeyGenMechanism  = AttributeType(0x00000166)
+	CkaValueBits        = AttributeType(pkcs11.CKA_VALUE_BITS)
+	CkaValueLen         = AttributeType(pkcs11.CKA_VALUE_LEN)
+	CkaExtractable      = AttributeType(pkcs11.CKA_EXTRACTABLE)
+	CkaLocal            = AttributeType(pkcs11.CKA_LOCAL)
+	CkaNeverExtractable = AttributeType(pkcs11.CKA_NEVER_EXTRACTABLE)
+	CkaAlwaysSensitive  = AttributeType(pkcs11.CKA_ALWAYS_SENSITIVE)
+	CkaKeyGenMechanism  = AttributeType(pkcs11.CKA_KEY_GEN_MECHANISM)
 
-	CkaModifiable = AttributeType(0x00000170)
-	CkaCopyable   = AttributeType(0x00000171)
+	CkaModifiable = AttributeType(pkcs11.CKA_MODIFIABLE)
+	CkaCopyable   = AttributeType(pkcs11.CKA_COPYABLE)
 
 	/* new for v2.40 */
-	CkaDestroyable = AttributeType(0x00000172)
+	CkaDestroyable = AttributeType(pkcs11.CKA_DESTROYABLE)
 
 	/* CKA_ECDSA_PARAMS is deprecated in v2.11,
 	 * CKA_EC_PARAMS is preferred. */
-	CkaEcdsaParams = AttributeType(0x00000180)
-	CkaEcParams    = AttributeType(0x00000180)
+	CkaEcdsaParams = AttributeType(pkcs11.CKA_ECDSA_PARAMS)
+	CkaEcParams    = AttributeType(pkcs11.CKA_EC_PARAMS)
 
-	CkaEcPoint = AttributeType(0x00000181)
+	CkaEcPoint = AttributeType(pkcs11.CKA_EC_POINT)
 
 	/* CKA_SECONDARY_AUTH, CKA_AUTH_PIN_FLAGS,
 	 * are new for v2.10. Deprecated in v2.11 and onwards. */
-	CkaSecondaryAuth = AttributeType(0x00000200) /* Deprecated */
-	CkaAuthPinFlags  = AttributeType(0x00000201) /* Deprecated */
+	CkaSecondaryAuth = AttributeType(pkcs11.CKA_SECONDARY_AUTH)
+	CkaAuthPinFlags  = AttributeType(pkcs11.CKA_AUTH_PIN_FLAGS)
 
-	CkaAlwaysAuthenticate = AttributeType(0x00000202)
+	CkaAlwaysAuthenticate = AttributeType(pkcs11.CKA_ALWAYS_AUTHENTICATE)
 
-	CkaWrapWithTrusted = AttributeType(0x00000210)
+	CkaWrapWithTrusted = AttributeType(pkcs11.CKA_WRAP_WITH_TRUSTED)
 
-	ckfArrayAttribute = AttributeType(0x40000000)
+	CkaWrapTemplate   = AttributeType(pkcs11.CKA_WRAP_TEMPLATE)
+	CkaUnwrapTemplate = AttributeType(pkcs11.CKA_UNWRAP_TEMPLATE)
 
-	CkaWrapTemplate   = ckfArrayAttribute | AttributeType(0x00000211)
-	CkaUnwrapTemplate = ckfArrayAttribute | AttributeType(0x00000212)
+	CkaOtpFormat               = AttributeType(pkcs11.CKA_OTP_FORMAT)
+	CkaOtpLength               = AttributeType(pkcs11.CKA_OTP_LENGTH)
+	CkaOtpTimeInterval         = AttributeType(pkcs11.CKA_OTP_TIME_INTERVAL)
+	CkaOtpUserFriendlyMode     = AttributeType(pkcs11.CKA_OTP_USER_FRIENDLY_MODE)
+	CkaOtpChallengeRequirement = AttributeType(pkcs11.CKA_OTP_CHALLENGE_REQUIREMENT)
+	CkaOtpTimeRequirement      = AttributeType(pkcs11.CKA_OTP_TIME_REQUIREMENT)
+	CkaOtpCounterRequirement   = AttributeType(pkcs11.CKA_OTP_COUNTER_REQUIREMENT)
+	CkaOtpPinRequirement       = AttributeType(pkcs11.CKA_OTP_PIN_REQUIREMENT)
+	CkaOtpCounter              = AttributeType(pkcs11.CKA_OTP_COUNTER)
+	CkaOtpTime                 = AttributeType(pkcs11.CKA_OTP_TIME)
+	CkaOtpUserIdentifier       = AttributeType(pkcs11.CKA_OTP_USER_IDENTIFIER)
+	CkaOtpServiceIdentifier    = AttributeType(pkcs11.CKA_OTP_SERVICE_IDENTIFIER)
+	CkaOtpServiceLogo          = AttributeType(pkcs11.CKA_OTP_SERVICE_LOGO)
+	CkaOtpServiceLogoType      = AttributeType(pkcs11.CKA_OTP_SERVICE_LOGO_TYPE)
 
-	CkaOtpFormat               = AttributeType(0x00000220)
-	CkaOtpLength               = AttributeType(0x00000221)
-	CkaOtpTimeInterval         = AttributeType(0x00000222)
-	CkaOtpUserFriendlyMode     = AttributeType(0x00000223)
-	CkaOtpChallengeRequirement = AttributeType(0x00000224)
-	CkaOtpTimeRequirement      = AttributeType(0x00000225)
-	CkaOtpCounterRequirement   = AttributeType(0x00000226)
-	CkaOtpPinRequirement       = AttributeType(0x00000227)
-	CkaOtpCounter              = AttributeType(0x0000022E)
-	CkaOtpTime                 = AttributeType(0x0000022F)
-	CkaOtpUserIdentifier       = AttributeType(0x0000022A)
-	CkaOtpServiceIdentifier    = AttributeType(0x0000022B)
-	CkaOtpServiceLogo          = AttributeType(0x0000022C)
-	CkaOtpServiceLogoType      = AttributeType(0x0000022D)
+	CkaGOSTR3410Params = AttributeType(pkcs11.CKA_GOSTR3410_PARAMS)
+	CkaGOSTR3411Params = AttributeType(pkcs11.CKA_GOSTR3411_PARAMS)
+	CkaGOST28147Params = AttributeType(pkcs11.CKA_GOST28147_PARAMS)
 
-	CkaGOSTR3410Params = AttributeType(0x00000250)
-	CkaGOSTR3411Params = AttributeType(0x00000251)
-	CkaGOST28147Params = AttributeType(0x00000252)
+	CkaHwFeatureType = AttributeType(pkcs11.CKA_HW_FEATURE_TYPE)
+	CkaResetOnInit   = AttributeType(pkcs11.CKA_RESET_ON_INIT)
+	CkaHasReset      = AttributeType(pkcs11.CKA_HAS_RESET)
 
-	CkaHwFeatureType = AttributeType(0x00000300)
-	CkaResetOnInit   = AttributeType(0x00000301)
-	CkaHasReset      = AttributeType(0x00000302)
-
-	CkaPixelX                 = AttributeType(0x00000400)
-	CkaPixelY                 = AttributeType(0x00000401)
-	CkaResolution             = AttributeType(0x00000402)
-	CkaCharRows               = AttributeType(0x00000403)
-	CkaCharColumns            = AttributeType(0x00000404)
-	CkaColor                  = AttributeType(0x00000405)
-	CkaBitsPerPixel           = AttributeType(0x00000406)
-	CkaCharSets               = AttributeType(0x00000480)
-	CkaEncodingMethods        = AttributeType(0x00000481)
-	CkaMimeTypes              = AttributeType(0x00000482)
-	CkaMechanismType          = AttributeType(0x00000500)
-	CkaRequiredCmsAttributes  = AttributeType(0x00000501)
-	CkaDefaultCmsAttributes   = AttributeType(0x00000502)
-	CkaSupportedCmsAttributes = AttributeType(0x00000503)
-	CkaAllowedMechanisms      = ckfArrayAttribute | AttributeType(0x00000600)
+	CkaPixelX                 = AttributeType(pkcs11.CKA_PIXEL_X)
+	CkaPixelY                 = AttributeType(pkcs11.CKA_PIXEL_Y)
+	CkaResolution             = AttributeType(pkcs11.CKA_RESOLUTION)
+	CkaCharRows               = AttributeType(pkcs11.CKA_CHAR_ROWS)
+	CkaCharColumns            = AttributeType(pkcs11.CKA_CHAR_COLUMNS)
+	CkaColor                  = AttributeType(pkcs11.CKA_COLOR)
+	CkaBitsPerPixel           = AttributeType(pkcs11.CKA_BITS_PER_PIXEL)
+	CkaCharSets               = AttributeType(pkcs11.CKA_CHAR_SETS)
+	CkaEncodingMethods        = AttributeType(pkcs11.CKA_ENCODING_METHODS)
+	CkaMimeTypes              = AttributeType(pkcs11.CKA_MIME_TYPES)
+	CkaMechanismType          = AttributeType(pkcs11.CKA_MECHANISM_TYPE)
+	CkaRequiredCmsAttributes  = AttributeType(pkcs11.CKA_REQUIRED_CMS_ATTRIBUTES)
+	CkaDefaultCmsAttributes   = AttributeType(pkcs11.CKA_DEFAULT_CMS_ATTRIBUTES)
+	CkaSupportedCmsAttributes = AttributeType(pkcs11.CKA_SUPPORTED_CMS_ATTRIBUTES)
+	CkaAllowedMechanisms      = AttributeType(pkcs11.CKA_ALLOWED_MECHANISMS)
 
 	/* new for v3.2 (PKCS#11 v3.2, KEM / post-quantum) */
-	CkaParameterSet        = AttributeType(0x0000061d)
-	CkaEncapsulateTemplate = AttributeType(0x0000062a)
-	CkaDecapsulateTemplate = AttributeType(0x0000062b)
-	CkaEncapsulate         = AttributeType(0x00000633)
-	CkaDecapsulate         = AttributeType(0x00000634)
+	CkaParameterSet        = AttributeType(pkcs11.CKA_PARAMETER_SET)
+	CkaEncapsulateTemplate = AttributeType(pkcs11.CKA_ENCAPSULATE_TEMPLATE)
+	CkaDecapsulateTemplate = AttributeType(pkcs11.CKA_DECAPSULATE_TEMPLATE)
+	CkaEncapsulate         = AttributeType(pkcs11.CKA_ENCAPSULATE)
+	CkaDecapsulate         = AttributeType(pkcs11.CKA_DECAPSULATE)
 )
 
 // NewAttribute is a helper function that populates a new Attribute for common data types. This function will
@@ -276,7 +284,7 @@ func (a AttributeSet) String() string {
 // attributes are redacted as well, since nothing here knows what they hold.
 func sensitiveAttribute(attr AttributeType) bool {
 	switch attr {
-	case CkaValue, CkaPrivateExponent, CkaPrime1, CkaPrime2, CkaExponent1, CkaExponent2, CkaCoefficient:
+	case pkcs11.CKA_VALUE, pkcs11.CKA_PRIVATE_EXPONENT, pkcs11.CKA_PRIME_1, pkcs11.CKA_PRIME_2, pkcs11.CKA_EXPONENT_1, pkcs11.CKA_EXPONENT_2, pkcs11.CKA_COEFFICIENT:
 		return true
 	}
 	return attr >= pkcs11.CKA_VENDOR_DEFINED
@@ -289,7 +297,7 @@ func NewAttributeSetWithID(id []byte) (AttributeSet, error) {
 		return nil, err
 	}
 	a := NewAttributeSet()
-	_ = a.Set(CkaId, id) // error not possible for []byte
+	_ = a.Set(pkcs11.CKA_ID, id) // error not possible for []byte
 	return a, nil
 }
 
@@ -304,249 +312,246 @@ func NewAttributeSetWithIDAndLabel(id, label []byte) (a AttributeSet, err error)
 		return nil, err
 	}
 
-	_ = a.Set(CkaLabel, label) // error not possible with []byte
+	_ = a.Set(pkcs11.CKA_LABEL, label) // error not possible with []byte
 	return a, nil
 }
 
 func attributeTypeString(a AttributeType) string {
 	//noinspection GoDeprecation
 	switch a {
-	case CkaClass:
+	case pkcs11.CKA_CLASS:
 		return "CkaClass"
-	case CkaToken:
+	case pkcs11.CKA_TOKEN:
 		return "CkaToken"
-	case CkaPrivate:
+	case pkcs11.CKA_PRIVATE:
 		return "CkaPrivate"
-	case CkaLabel:
+	case pkcs11.CKA_LABEL:
 		return "CkaLabel"
-	case CkaApplication:
+	case pkcs11.CKA_APPLICATION:
 		return "CkaApplication"
-	case CkaValue:
+	case pkcs11.CKA_VALUE:
 		return "CkaValue"
-	case CkaObjectId:
+	case pkcs11.CKA_OBJECT_ID:
 		return "CkaObjectId"
-	case CkaCertificateType:
+	case pkcs11.CKA_CERTIFICATE_TYPE:
 		return "CkaCertificateType"
-	case CkaIssuer:
+	case pkcs11.CKA_ISSUER:
 		return "CkaIssuer"
-	case CkaSerialNumber:
+	case pkcs11.CKA_SERIAL_NUMBER:
 		return "CkaSerialNumber"
-	case CkaAcIssuer:
+	case pkcs11.CKA_AC_ISSUER:
 		return "CkaAcIssuer"
-	case CkaOwner:
+	case pkcs11.CKA_OWNER:
 		return "CkaOwner"
-	case CkaAttrTypes:
+	case pkcs11.CKA_ATTR_TYPES:
 		return "CkaAttrTypes"
-	case CkaTrusted:
+	case pkcs11.CKA_TRUSTED:
 		return "CkaTrusted"
-	case CkaCertificateCategory:
+	case pkcs11.CKA_CERTIFICATE_CATEGORY:
 		return "CkaCertificateCategory"
-	case CkaJavaMIDPSecurityDomain:
+	case pkcs11.CKA_JAVA_MIDP_SECURITY_DOMAIN:
 		return "CkaJavaMIDPSecurityDomain"
-	case CkaUrl:
+	case pkcs11.CKA_URL:
 		return "CkaUrl"
-	case CkaHashOfSubjectPublicKey:
+	case pkcs11.CKA_HASH_OF_SUBJECT_PUBLIC_KEY:
 		return "CkaHashOfSubjectPublicKey"
-	case CkaHashOfIssuerPublicKey:
+	case pkcs11.CKA_HASH_OF_ISSUER_PUBLIC_KEY:
 		return "CkaHashOfIssuerPublicKey"
-	case CkaNameHashAlgorithm:
+	case pkcs11.CKA_NAME_HASH_ALGORITHM:
 		return "CkaNameHashAlgorithm"
-	case CkaCheckValue:
+	case pkcs11.CKA_CHECK_VALUE:
 		return "CkaCheckValue"
 
-	case CkaKeyType:
+	case pkcs11.CKA_KEY_TYPE:
 		return "CkaKeyType"
-	case CkaSubject:
+	case pkcs11.CKA_SUBJECT:
 		return "CkaSubject"
-	case CkaId:
+	case pkcs11.CKA_ID:
 		return "CkaId"
-	case CkaSensitive:
+	case pkcs11.CKA_SENSITIVE:
 		return "CkaSensitive"
-	case CkaEncrypt:
+	case pkcs11.CKA_ENCRYPT:
 		return "CkaEncrypt"
-	case CkaDecrypt:
+	case pkcs11.CKA_DECRYPT:
 		return "CkaDecrypt"
-	case CkaWrap:
+	case pkcs11.CKA_WRAP:
 		return "CkaWrap"
-	case CkaUnwrap:
+	case pkcs11.CKA_UNWRAP:
 		return "CkaUnwrap"
-	case CkaSign:
+	case pkcs11.CKA_SIGN:
 		return "CkaSign"
-	case CkaSignRecover:
+	case pkcs11.CKA_SIGN_RECOVER:
 		return "CkaSignRecover"
-	case CkaVerify:
+	case pkcs11.CKA_VERIFY:
 		return "CkaVerify"
-	case CkaVerifyRecover:
+	case pkcs11.CKA_VERIFY_RECOVER:
 		return "CkaVerifyRecover"
-	case CkaDerive:
+	case pkcs11.CKA_DERIVE:
 		return "CkaDerive"
-	case CkaStartDate:
+	case pkcs11.CKA_START_DATE:
 		return "CkaStartDate"
-	case CkaEndDate:
+	case pkcs11.CKA_END_DATE:
 		return "CkaEndDate"
-	case CkaModulus:
+	case pkcs11.CKA_MODULUS:
 		return "CkaModulus"
-	case CkaModulusBits:
+	case pkcs11.CKA_MODULUS_BITS:
 		return "CkaModulusBits"
-	case CkaPublicExponent:
+	case pkcs11.CKA_PUBLIC_EXPONENT:
 		return "CkaPublicExponent"
-	case CkaPrivateExponent:
+	case pkcs11.CKA_PRIVATE_EXPONENT:
 		return "CkaPrivateExponent"
-	case CkaPrime1:
+	case pkcs11.CKA_PRIME_1:
 		return "CkaPrime1"
-	case CkaPrime2:
+	case pkcs11.CKA_PRIME_2:
 		return "CkaPrime2"
-	case CkaExponent1:
+	case pkcs11.CKA_EXPONENT_1:
 		return "CkaExponent1"
-	case CkaExponent2:
+	case pkcs11.CKA_EXPONENT_2:
 		return "CkaExponent2"
-	case CkaCoefficient:
+	case pkcs11.CKA_COEFFICIENT:
 		return "CkaCoefficient"
-	case CkaPublicKeyInfo:
+	case pkcs11.CKA_PUBLIC_KEY_INFO:
 		return "CkaPublicKeyInfo"
-	case CkaPrime:
+	case pkcs11.CKA_PRIME:
 		return "CkaPrime"
-	case CkaSubprime:
+	case pkcs11.CKA_SUBPRIME:
 		return "CkaSubprime"
-	case CkaBase:
+	case pkcs11.CKA_BASE:
 		return "CkaBase"
 
-	case CkaPrimeBits:
+	case pkcs11.CKA_PRIME_BITS:
 		return "CkaPrimeBits"
-	case CkaSubprimeBits:
+	case pkcs11.CKA_SUBPRIME_BITS:
 		return "CkaSubprimeBits"
 
-	case CkaValueBits:
+	case pkcs11.CKA_VALUE_BITS:
 		return "CkaValueBits"
-	case CkaValueLen:
+	case pkcs11.CKA_VALUE_LEN:
 		return "CkaValueLen"
-	case CkaExtractable:
+	case pkcs11.CKA_EXTRACTABLE:
 		return "CkaExtractable"
-	case CkaLocal:
+	case pkcs11.CKA_LOCAL:
 		return "CkaLocal"
-	case CkaNeverExtractable:
+	case pkcs11.CKA_NEVER_EXTRACTABLE:
 		return "CkaNeverExtractable"
-	case CkaAlwaysSensitive:
+	case pkcs11.CKA_ALWAYS_SENSITIVE:
 		return "CkaAlwaysSensitive"
-	case CkaKeyGenMechanism:
+	case pkcs11.CKA_KEY_GEN_MECHANISM:
 		return "CkaKeyGenMechanism"
 
-	case CkaModifiable:
+	case pkcs11.CKA_MODIFIABLE:
 		return "CkaModifiable"
-	case CkaCopyable:
+	case pkcs11.CKA_COPYABLE:
 		return "CkaCopyable"
 
-	case CkaDestroyable:
+	case pkcs11.CKA_DESTROYABLE:
 		return "CkaDestroyable"
 
-	case CkaEcParams:
+	case pkcs11.CKA_EC_PARAMS:
 		return "CkaEcParams"
 
-	case CkaEcPoint:
+	case pkcs11.CKA_EC_POINT:
 		return "CkaEcPoint"
 
-	case CkaSecondaryAuth:
+	case pkcs11.CKA_SECONDARY_AUTH:
 		return "CkaSecondaryAuth"
-	case CkaAuthPinFlags:
+	case pkcs11.CKA_AUTH_PIN_FLAGS:
 		return "CkaAuthPinFlags"
 
-	case CkaAlwaysAuthenticate:
+	case pkcs11.CKA_ALWAYS_AUTHENTICATE:
 		return "CkaAlwaysAuthenticate"
 
-	case CkaWrapWithTrusted:
+	case pkcs11.CKA_WRAP_WITH_TRUSTED:
 		return "CkaWrapWithTrusted"
 
-	case ckfArrayAttribute:
-		return "ckfArrayAttribute"
-
-	case CkaWrapTemplate:
+	case pkcs11.CKA_WRAP_TEMPLATE:
 		return "CkaWrapTemplate"
-	case CkaUnwrapTemplate:
+	case pkcs11.CKA_UNWRAP_TEMPLATE:
 		return "CkaUnwrapTemplate"
 
-	case CkaOtpFormat:
+	case pkcs11.CKA_OTP_FORMAT:
 		return "CkaOtpFormat"
-	case CkaOtpLength:
+	case pkcs11.CKA_OTP_LENGTH:
 		return "CkaOtpLength"
-	case CkaOtpTimeInterval:
+	case pkcs11.CKA_OTP_TIME_INTERVAL:
 		return "CkaOtpTimeInterval"
-	case CkaOtpUserFriendlyMode:
+	case pkcs11.CKA_OTP_USER_FRIENDLY_MODE:
 		return "CkaOtpUserFriendlyMode"
-	case CkaOtpChallengeRequirement:
+	case pkcs11.CKA_OTP_CHALLENGE_REQUIREMENT:
 		return "CkaOtpChallengeRequirement"
-	case CkaOtpTimeRequirement:
+	case pkcs11.CKA_OTP_TIME_REQUIREMENT:
 		return "CkaOtpTimeRequirement"
-	case CkaOtpCounterRequirement:
+	case pkcs11.CKA_OTP_COUNTER_REQUIREMENT:
 		return "CkaOtpCounterRequirement"
-	case CkaOtpPinRequirement:
+	case pkcs11.CKA_OTP_PIN_REQUIREMENT:
 		return "CkaOtpPinRequirement"
-	case CkaOtpCounter:
+	case pkcs11.CKA_OTP_COUNTER:
 		return "CkaOtpCounter"
-	case CkaOtpTime:
+	case pkcs11.CKA_OTP_TIME:
 		return "CkaOtpTime"
-	case CkaOtpUserIdentifier:
+	case pkcs11.CKA_OTP_USER_IDENTIFIER:
 		return "CkaOtpUserIdentifier"
-	case CkaOtpServiceIdentifier:
+	case pkcs11.CKA_OTP_SERVICE_IDENTIFIER:
 		return "CkaOtpServiceIdentifier"
-	case CkaOtpServiceLogo:
+	case pkcs11.CKA_OTP_SERVICE_LOGO:
 		return "CkaOtpServiceLogo"
-	case CkaOtpServiceLogoType:
+	case pkcs11.CKA_OTP_SERVICE_LOGO_TYPE:
 		return "CkaOtpServiceLogoType"
 
-	case CkaGOSTR3410Params:
+	case pkcs11.CKA_GOSTR3410_PARAMS:
 		return "CkaGOSTR3410Params"
-	case CkaGOSTR3411Params:
+	case pkcs11.CKA_GOSTR3411_PARAMS:
 		return "CkaGOSTR3411Params"
-	case CkaGOST28147Params:
+	case pkcs11.CKA_GOST28147_PARAMS:
 		return "CkaGOST28147Params"
 
-	case CkaHwFeatureType:
+	case pkcs11.CKA_HW_FEATURE_TYPE:
 		return "CkaHwFeatureType"
-	case CkaResetOnInit:
+	case pkcs11.CKA_RESET_ON_INIT:
 		return "CkaResetOnInit"
-	case CkaHasReset:
+	case pkcs11.CKA_HAS_RESET:
 		return "CkaHasReset"
 
-	case CkaPixelX:
+	case pkcs11.CKA_PIXEL_X:
 		return "CkaPixelX"
-	case CkaPixelY:
+	case pkcs11.CKA_PIXEL_Y:
 		return "CkaPixelY"
-	case CkaResolution:
+	case pkcs11.CKA_RESOLUTION:
 		return "CkaResolution"
-	case CkaCharRows:
+	case pkcs11.CKA_CHAR_ROWS:
 		return "CkaCharRows"
-	case CkaCharColumns:
+	case pkcs11.CKA_CHAR_COLUMNS:
 		return "CkaCharColumns"
-	case CkaColor:
+	case pkcs11.CKA_COLOR:
 		return "CkaColor"
-	case CkaBitsPerPixel:
+	case pkcs11.CKA_BITS_PER_PIXEL:
 		return "CkaBitsPerPixel"
-	case CkaCharSets:
+	case pkcs11.CKA_CHAR_SETS:
 		return "CkaCharSets"
-	case CkaEncodingMethods:
+	case pkcs11.CKA_ENCODING_METHODS:
 		return "CkaEncodingMethods"
-	case CkaMimeTypes:
+	case pkcs11.CKA_MIME_TYPES:
 		return "CkaMimeTypes"
-	case CkaMechanismType:
+	case pkcs11.CKA_MECHANISM_TYPE:
 		return "CkaMechanismType"
-	case CkaRequiredCmsAttributes:
+	case pkcs11.CKA_REQUIRED_CMS_ATTRIBUTES:
 		return "CkaRequiredCmsAttributes"
-	case CkaDefaultCmsAttributes:
+	case pkcs11.CKA_DEFAULT_CMS_ATTRIBUTES:
 		return "CkaDefaultCmsAttributes"
-	case CkaSupportedCmsAttributes:
+	case pkcs11.CKA_SUPPORTED_CMS_ATTRIBUTES:
 		return "CkaSupportedCmsAttributes"
-	case CkaAllowedMechanisms:
+	case pkcs11.CKA_ALLOWED_MECHANISMS:
 		return "CkaAllowedMechanisms"
 
-	case CkaParameterSet:
+	case pkcs11.CKA_PARAMETER_SET:
 		return "CkaParameterSet"
-	case CkaEncapsulateTemplate:
+	case pkcs11.CKA_ENCAPSULATE_TEMPLATE:
 		return "CkaEncapsulateTemplate"
-	case CkaDecapsulateTemplate:
+	case pkcs11.CKA_DECAPSULATE_TEMPLATE:
 		return "CkaDecapsulateTemplate"
-	case CkaEncapsulate:
+	case pkcs11.CKA_ENCAPSULATE:
 		return "CkaEncapsulate"
-	case CkaDecapsulate:
+	case pkcs11.CKA_DECAPSULATE:
 		return "CkaDecapsulate"
 
 	default:
