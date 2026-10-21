@@ -177,6 +177,11 @@ reporting or the Eclipse Foundation security team — and which versions receive
 
 ### Fixed
 
+- **`Delete` on a key pair without a public key object.** `FindKeyPair` takes the public half
+  from a certificate when the token holds no public key object. `Delete` on such a pair destroyed
+  the private key and then returned `CKR_OBJECT_HANDLE_INVALID` for the public object that does
+  not exist, so a successful deletion was reported as a failure. It now returns nil and leaves
+  the certificate, a separate object, for `DeleteCertificate`.
 - **RSA-PSS options are checked before reaching the token.** A negative `PSSOptions.SaltLength`
   other than the two sentinels made `Sign` panic, since pkcs11-go's `NewPSSParams` panics on a
   negative salt. It is now an error wrapping `errUnsupportedRSAOptions`, as crypto/rsa makes it.
@@ -188,6 +193,9 @@ reporting or the Eclipse Foundation security team — and which versions receive
   any output length: 0 made every `Sum` panic on the empty MAC, and a negative length reached the
   token as a huge `CK_ULONG`. Lengths outside 1 to the hash's full size are now rejected with
   `errInvalidMACLength`. The size table is tested against Go's own hash implementations.
+- **CBC `CryptBlocks` on empty input** is a no-op, as it is for crypto/cipher's block modes. It
+  used to pass the empty slice to the token, and on SoftHSM2 panicked with
+  `CKR_ARGUMENTS_BAD`.
 - Key enumeration no longer aborts on a key type the package cannot represent
   ([#68](https://github.com/eclipse-keypont/crypto11/issues/68), reported by
   [@Knacktus](https://github.com/Knacktus) and independently run into by

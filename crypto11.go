@@ -155,6 +155,14 @@ func (k *pkcs11PrivateKey) Delete() error {
 		return err
 	}
 
+	if k.pubKeyHandle == pkcs11.CK_INVALID_HANDLE {
+		// The key pair was found with no public key object on the token, its
+		// public half taken from a certificate, so there is nothing more to
+		// destroy. The certificate is a separate object and is left in place;
+		// DeleteCertificate removes it.
+		return nil
+	}
+
 	err = k.context.withSession(func(session *pkcs11Session) error {
 		if err := session.ctx.DestroyObject(session.handle, k.pubKeyHandle); err != nil {
 			return fmt.Errorf("failed to destroy public key: %w", err)
@@ -204,7 +212,10 @@ type Context struct {
 type Signer interface {
 	crypto.Signer
 
-	// Delete deletes the key pair from the token.
+	// Delete deletes the key pair from the token. A key pair whose public half
+	// came from a certificate, because the token holds no public key object
+	// for it, loses only its private key; the certificate is left for
+	// DeleteCertificate.
 	//
 	// Delete must not run concurrently with another operation on the same
 	// key. Once it has returned, any further use of the key fails with an

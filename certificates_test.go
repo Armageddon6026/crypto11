@@ -535,6 +535,51 @@ func TestFindAllPairedCertificatesReturnsChain(t *testing.T) {
 	})
 }
 
+// TestDeleteKeyPairWithCertificatePublicHalf checks Delete on a key pair found
+// with no public key object, whose public half therefore came from a
+// certificate: the private key goes, the certificate stays, and no error is
+// reported for the public object that does not exist.
+func TestDeleteKeyPairWithCertificatePublicHalf(t *testing.T) {
+	skipTest(t, skipTestCert)
+
+	withContext(t, func(ctx *Context) {
+		id := randomBytes()
+		key, err := ctx.GenerateECDSAKeyPair(id, elliptic.P256())
+		require.NoError(t, err)
+
+		template := &x509.Certificate{
+			SerialNumber: big.NewInt(1),
+			Subject:      pkix.Name{CommonName: "certificate-backed key pair"},
+			NotBefore:    time.Now().Add(-time.Hour),
+			NotAfter:     time.Now().Add(time.Hour),
+		}
+		der, err := x509.CreateCertificate(rand.Reader, template, template, key.Public(), key)
+		require.NoError(t, err)
+		cert, err := x509.ParseCertificate(der)
+		require.NoError(t, err)
+		require.NoError(t, ctx.ImportCertificate(id, cert))
+		defer func() { assert.NoError(t, ctx.DeleteCertificate(id, nil, nil)) }()
+
+		// Remove the public key object, leaving the certificate as the only public half.
+		pubHandle := key.(*pkcs11PrivateKeyECDSA).pubKeyHandle
+		require.NoError(t, ctx.withSession(func(session *pkcs11Session) error {
+			return session.ctx.DestroyObject(session.handle, pubHandle)
+		}))
+
+		found, err := ctx.FindKeyPair(id, nil)
+		require.NoError(t, err)
+		require.True(t, found.Public().(*ecdsa.PublicKey).Equal(key.Public()), "public half comes from the certificate")
+
+		require.NoError(t, found.Delete())
+
+		_, err = ctx.FindPrivateKey(id, nil)
+		require.Error(t, err, "the private key is gone")
+		remaining, err := ctx.FindCertificate(id, nil, nil)
+		require.NoError(t, err)
+		require.NotNil(t, remaining, "the certificate is left in place")
+	})
+}
+
 // createCert signs template with the issuer's key and returns the parsed result.
 func createCert(t *testing.T, template, parent *x509.Certificate,
 	pub *ecdsa.PublicKey, signer *ecdsa.PrivateKey) *x509.Certificate {
