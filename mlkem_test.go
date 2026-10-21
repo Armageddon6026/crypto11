@@ -40,6 +40,145 @@ func TestMLKEM(t *testing.T) {
 	t.Run("Delete", func(t *testing.T) { testMLKEMDelete(t, ctx) })
 	t.Run("OtherFindersStillWork", func(t *testing.T) { testMLKEMOtherFindersStillWork(t, ctx) })
 	t.Run("NonExtractableSecretIsAnError", func(t *testing.T) { testMLKEMNonExtractableSecret(t, ctx) })
+	t.Run("SharedSecretDefaults", func(t *testing.T) { testMLKEMSharedSecretDefaults(t, ctx) })
+	t.Run("FindRejectsPlantedPublicKey", func(t *testing.T) { testMLKEMFindRejectsPlantedPublicKey(t, ctx) })
+	t.Run("LabelOnlyKeyNotPairedWithForeignKey", func(t *testing.T) { testMLKEMLabelOnlyKey(t, ctx) })
+}
+
+// A shared-secret template that leaves CKA_SENSITIVE and CKA_EXTRACTABLE out must still produce
+// a sensitive, non-extractable key, whatever the token's own defaults are.
+func testMLKEMSharedSecretDefaults(t *testing.T, ctx *Context) {
+	t.Helper()
+	key, err := ctx.GenerateMLKEMKeyPair(randomBytes(), MLKEM768)
+	require.NoError(t, err)
+	defer func() { _ = key.Delete() }()
+
+	template := NewAttributeSet()
+	require.NoError(t, template.Set(CkaClass, pkcs11.CKO_SECRET_KEY))
+	require.NoError(t, template.Set(CkaKeyType, pkcs11.CKK_AES))
+	require.NoError(t, template.Set(CkaValueLen, 32))
+	require.NoError(t, template.Set(CkaToken, false))
+
+	ciphertext, encapSS, err := key.Encapsulate(template)
+	require.NoError(t, err)
+	defer func() { _ = encapSS.Delete() }()
+	decapSS, err := key.Decapsulate(ciphertext, template)
+	require.NoError(t, err)
+	defer func() { _ = decapSS.Delete() }()
+
+	_, sensitiveSet := template[CkaSensitive]
+	assert.False(t, sensitiveSet, "the caller's template must not be modified")
+
+	for name, ss := range map[string]*MLKEMSharedSecret{"encapsulated": encapSS, "decapsulated": decapSS} {
+		var attrs []*pkcs11.Attribute
+		require.NoError(t, ctx.withSession(func(session *pkcs11Session) (err error) {
+			attrs, err = session.ctx.GetAttributeValue(session.handle, ss.handle, []*pkcs11.Attribute{
+				pkcs11.NewAttribute(pkcs11.CKA_SENSITIVE, nil),
+				pkcs11.NewAttribute(pkcs11.CKA_EXTRACTABLE, nil),
+			})
+			return err
+		}))
+		assert.Equal(t, []byte{1}, attrs[0].Value, "%s secret CKA_SENSITIVE", name)
+		assert.Equal(t, []byte{0}, attrs[1].Value, "%s secret CKA_EXTRACTABLE", name)
+		_, err := ss.Bytes()
+		assert.Error(t, err, "%s secret value was readable", name)
+	}
+}
+
+// plantMLKEMPublicKey creates an ML-KEM public key object carrying id and label for the
+// encapsulation key value, as any session on the token can, logged in or not.
+func plantMLKEMPublicKey(t *testing.T, ctx *Context, id, label, value []byte, paramSet MLKEMParameterSet) pkcs11.ObjectHandle {
+	t.Helper()
+	template := []*pkcs11.Attribute{
+		pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_PUBLIC_KEY),
+		pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, pkcs11.CKK_ML_KEM),
+		pkcs11.NewAttribute(pkcs11.CKA_TOKEN, true),
+		pkcs11.NewAttribute(pkcs11.CKA_PRIVATE, false),
+		pkcs11.NewAttribute(pkcs11.CKA_ENCAPSULATE, true),
+		pkcs11.NewAttribute(pkcs11.CKA_PARAMETER_SET, paramSet),
+		pkcs11.NewAttribute(pkcs11.CKA_VALUE, value),
+	}
+	if id != nil {
+		template = append(template, pkcs11.NewAttribute(pkcs11.CKA_ID, id))
+	}
+	if label != nil {
+		template = append(template, pkcs11.NewAttribute(pkcs11.CKA_LABEL, label))
+	}
+	var handle pkcs11.ObjectHandle
+	require.NoError(t, ctx.withSession(func(session *pkcs11Session) (err error) {
+		handle, err = session.ctx.CreateObject(session.handle, template)
+		return err
+	}))
+	return handle
+}
+
+// mlkemPublicValue reads the encapsulation key of a key pair's public key object.
+func mlkemPublicValue(t *testing.T, ctx *Context, key MLKEMKeyPair) []byte {
+	t.Helper()
+	var value []byte
+	require.NoError(t, ctx.withSession(func(session *pkcs11Session) error {
+		value = readAttributes(session, key.(*pkcs11MLKEMKeyPair).pubKeyHandle, pkcs11.CKA_VALUE)[0]
+		return nil
+	}))
+	require.NotEmpty(t, value)
+	return value
+}
+
+// An ML-KEM public key planted with a key pair's CKA_ID and CKA_LABEL must not be paired with the
+// private key: encapsulating to it would hand the shared secret to whoever planted it.
+func testMLKEMFindRejectsPlantedPublicKey(t *testing.T, ctx *Context) {
+	t.Helper()
+	id, label := randomBytes(), randomBytes()
+	key, err := ctx.GenerateMLKEMKeyPairWithLabel(id, label, MLKEM768)
+	require.NoError(t, err)
+	genuine := key.(*pkcs11MLKEMKeyPair)
+
+	other, err := ctx.GenerateMLKEMKeyPair(randomBytes(), MLKEM768)
+	require.NoError(t, err)
+	defer func() { _ = other.Delete() }()
+
+	planted := make([]pkcs11.ObjectHandle, 3)
+	for i := range planted {
+		planted[i] = plantMLKEMPublicKey(t, ctx, id, label, mlkemPublicValue(t, ctx, other), MLKEM768)
+	}
+	defer func() {
+		for _, h := range planted {
+			destroyObject(t, ctx, h)
+		}
+	}()
+
+	for range 3 {
+		found, err := ctx.FindMLKEMKeyPair(id, label)
+		require.NoError(t, err)
+		assert.Equal(t, genuine.pubKeyHandle, found.(*pkcs11MLKEMKeyPair).pubKeyHandle,
+			"FindMLKEMKeyPair paired the private key with a planted public key")
+	}
+
+	// With the genuine public key gone, only planted ones are left.
+	destroyObject(t, ctx, genuine.pubKeyHandle)
+	defer destroyObject(t, ctx, genuine.handle)
+	_, err = ctx.FindMLKEMKeyPair(id, label)
+	assert.Error(t, err, "a planted public key was accepted once the genuine one was gone")
+}
+
+// A private key with a label but no CKA_ID, whose public key cannot be found by that label, must
+// not be paired with some other ML-KEM public key on the token.
+func testMLKEMLabelOnlyKey(t *testing.T, ctx *Context) {
+	t.Helper()
+	other, err := ctx.GenerateMLKEMKeyPair(randomBytes(), MLKEM768)
+	require.NoError(t, err)
+	defer func() { _ = other.Delete() }()
+
+	label := randomBytes()
+	public, private := NewAttributeSet(), NewAttributeSet()
+	require.NoError(t, public.Set(CkaLabel, randomBytes()))
+	require.NoError(t, private.Set(CkaLabel, label))
+	key, err := ctx.GenerateMLKEMKeyPairWithAttributes(public, private, MLKEM768)
+	require.NoError(t, err)
+	defer func() { _ = key.Delete() }()
+
+	_, err = ctx.FindMLKEMKeyPair(nil, label)
+	assert.Error(t, err, "a label-only private key was paired with another key's public half")
 }
 
 // A shared secret derived as sensitive and non-extractable stays on the token;

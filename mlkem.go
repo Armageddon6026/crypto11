@@ -5,8 +5,11 @@
 package crypto11
 
 import (
+	"bytes"
+	"crypto/subtle"
 	"errors"
 	"fmt"
+	"slices"
 
 	pkcs11 "github.com/eclipse-keypont/pkcs11-go/cryptoki"
 )
@@ -36,7 +39,8 @@ type MLKEMSharedSecret struct {
 }
 
 // Bytes extracts the raw shared secret value from the token.
-// The key must have been created with CKA_EXTRACTABLE = true in the shared secret template.
+// The key must have been created with CKA_SENSITIVE = false and CKA_EXTRACTABLE = true in the
+// shared secret template. By default it is sensitive and not extractable.
 //
 // Security note: extracting the shared secret pulls sensitive key material out
 // of the HSM into ordinary (garbage-collected, swappable) process memory, which
@@ -74,6 +78,8 @@ type MLKEMEncapsulator interface {
 	// Encapsulate generates a fresh shared secret, encapsulates it with the public key, and
 	// derives a new key object on the token using sharedSecretAttrs as the template.
 	// The returned ciphertext must be transmitted to the holder of the matching private key.
+	// Unless the template says otherwise, the derived key is sensitive, not extractable and
+	// private.
 	Encapsulate(sharedSecretAttrs AttributeSet) (ciphertext []byte, sharedSecret *MLKEMSharedSecret, err error)
 
 	// ParameterSet returns the ML-KEM security level (MLKEM512, MLKEM768, or MLKEM1024).
@@ -87,6 +93,8 @@ type MLKEMEncapsulator interface {
 type MLKEMDecapsulator interface {
 	// Decapsulate recovers the shared secret from a ciphertext produced by the matching
 	// encapsulator, deriving a new key object on the token using sharedSecretAttrs as the template.
+	// Unless the template says otherwise, the derived key is sensitive, not extractable and
+	// private.
 	Decapsulate(ciphertext []byte, sharedSecretAttrs AttributeSet) (*MLKEMSharedSecret, error)
 
 	// ParameterSet returns the ML-KEM security level (MLKEM512, MLKEM768, or MLKEM1024).
@@ -132,7 +140,7 @@ func (k *pkcs11MLKEMKeyPair) Encapsulate(sharedSecretAttrs AttributeSet) ([]byte
 	err := k.context.withSession(func(session *pkcs11Session) error {
 		mech := pkcs11.NewMechanism(pkcs11.CKM_ML_KEM, nil)
 		ct, ssHandle, err := session.ctx.EncapsulateKey(
-			session.handle, mech, k.pubKeyHandle, sharedSecretAttrs.ToSlice())
+			session.handle, mech, k.pubKeyHandle, k.context.sharedSecretTemplate(sharedSecretAttrs))
 		if err != nil {
 			return err
 		}
@@ -150,7 +158,7 @@ func (k *pkcs11MLKEMKeyPair) Decapsulate(ciphertext []byte, sharedSecretAttrs At
 	err := k.context.withSession(func(session *pkcs11Session) error {
 		mech := pkcs11.NewMechanism(pkcs11.CKM_ML_KEM, nil)
 		ssHandle, err := session.ctx.DecapsulateKey(
-			session.handle, mech, k.handle, sharedSecretAttrs.ToSlice(), ciphertext)
+			session.handle, mech, k.handle, k.context.sharedSecretTemplate(sharedSecretAttrs), ciphertext)
 		if err != nil {
 			return err
 		}
@@ -158,6 +166,20 @@ func (k *pkcs11MLKEMKeyPair) Decapsulate(ciphertext []byte, sharedSecretAttrs At
 		return nil
 	})
 	return ss, err
+}
+
+// sharedSecretTemplate returns attrs with secure defaults for the attributes it leaves out: the
+// shared-secret key is sensitive, not extractable and, where the token supports login, private,
+// as GenerateSecretKey makes its keys. Without them the key would take the token's defaults,
+// which are often readable and exportable. attrs is not modified.
+func (c *Context) sharedSecretTemplate(attrs AttributeSet) []*pkcs11.Attribute {
+	template := attrs.Copy()
+	template.AddIfNotPresent([]*pkcs11.Attribute{
+		pkcs11.NewAttribute(pkcs11.CKA_SENSITIVE, true),
+		pkcs11.NewAttribute(pkcs11.CKA_EXTRACTABLE, false),
+		pkcs11.NewAttribute(pkcs11.CKA_PRIVATE, c.defaultPrivate()),
+	})
+	return template.ToSlice()
 }
 
 // GenerateMLKEMKeyPair creates an ML-KEM key pair on the token. The id parameter is used to
@@ -251,8 +273,14 @@ func (c *Context) GenerateMLKEMKeyPairWithAttributes(public, private AttributeSe
 	return k, err
 }
 
-// makeMLKEMKeyPair reconstructs an MLKEMKeyPair from a private key handle by locating
-// the matching public key on the token via CKA_ID / CKA_LABEL.
+// makeMLKEMKeyPair reconstructs an MLKEMKeyPair from a private key handle by locating the
+// matching public key on the token via CKA_ID / CKA_LABEL.
+//
+// Those attributes only select candidates. A public key found by them could have been created by
+// anyone with a session on the token, and encapsulating to it would hand the shared secret to
+// whoever holds its private half, so a candidate is used only once it has been verified against
+// the private key (see mlkemPairVerifier). Unlike a signer, whose public key is only reported, an
+// ML-KEM public key is used to encrypt, so a candidate that cannot be verified is never used.
 func (c *Context) makeMLKEMKeyPair(session *pkcs11Session, privHandle *pkcs11.ObjectHandle) (MLKEMKeyPair, error) {
 	attrs, err := session.ctx.GetAttributeValue(session.handle, *privHandle, []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_ID, nil),
@@ -264,43 +292,148 @@ func (c *Context) makeMLKEMKeyPair(session *pkcs11Session, privHandle *pkcs11.Ob
 	}
 	id := attrs[0].Value
 	label := attrs[1].Value
-	paramSet := pkcs11.BytesToULong(attrs[2].Value)
+	var paramSet MLKEMParameterSet
+	if len(attrs[2].Value) > 0 {
+		paramSet = pkcs11.BytesToULong(attrs[2].Value)
+	}
 
 	if len(id) == 0 && len(label) == 0 {
 		return nil, errNoCkaID
 	}
 
+	// Public keys with the private key's CKA_ID and CKA_LABEL, then those that share only its
+	// CKA_ID. As for signers, the search by CKA_ID alone needs an id, or it would match every
+	// ML-KEM public key on the token.
 	keyType := uint(pkcs11.CKK_ML_KEM)
-	pubHandle, err := findKey(session, id, label, uintPtr(pkcs11.CKO_PUBLIC_KEY), &keyType)
+	primary, err := findPublicKeyHandles(session, id, label, keyType)
 	if err != nil {
-		// Some tokens (e.g. CloudHSM) reject searches with an empty label attribute.
-		var p11Err pkcs11.Error
-		ok := errors.As(err, &p11Err)
-		if len(label) == 0 && ok && p11Err == pkcs11.CKR_TEMPLATE_INCONSISTENT {
-			pubHandle, err = findKey(session, id, nil, uintPtr(pkcs11.CKO_PUBLIC_KEY), &keyType)
-			if err != nil {
-				return nil, err
-			}
-		} else {
-			return nil, err
-		}
+		return nil, err
 	}
-	if pubHandle == nil {
-		// Try again with ID only in case label search returned nothing.
-		pubHandle, err = findKey(session, id, nil, uintPtr(pkcs11.CKO_PUBLIC_KEY), &keyType)
+	var secondary []pkcs11.ObjectHandle
+	if len(id) > 0 {
+		byID, err := findKeys(session, id, nil, uintPtr(pkcs11.CKO_PUBLIC_KEY), &keyType)
 		if err != nil {
 			return nil, err
 		}
+		for _, h := range byID {
+			if !slices.Contains(primary, h) {
+				secondary = append(secondary, h)
+			}
+		}
 	}
-	if pubHandle == nil {
+
+	verifier := newMLKEMPairVerifier(session, *privHandle)
+	var chosen *pkcs11.ObjectHandle
+	var chosenParamSet MLKEMParameterSet
+	for _, handles := range [][]pkcs11.ObjectHandle{primary, secondary} {
+		for i := range handles {
+			values := readAttributes(session, handles[i], pkcs11.CKA_VALUE, pkcs11.CKA_PARAMETER_SET)
+			if len(values[0]) == 0 || len(values[1]) == 0 {
+				continue
+			}
+			candidateSet := pkcs11.BytesToULong(values[1])
+			if !validMLKEMParameterSet(candidateSet) || (paramSet != 0 && candidateSet != paramSet) {
+				continue
+			}
+			if verifier.check(handles[i], values[0]) == pairVerified {
+				chosen, chosenParamSet = &handles[i], candidateSet
+				break
+			}
+		}
+		if chosen != nil {
+			break
+		}
+	}
+	if chosen == nil {
 		return nil, errNoPublicHalf
 	}
 
 	return &pkcs11MLKEMKeyPair{
 		pkcs11Object: pkcs11Object{handle: *privHandle, context: c},
-		pubKeyHandle: *pubHandle,
-		paramSet:     paramSet,
+		pubKeyHandle: *chosen,
+		paramSet:     chosenParamSet,
 	}, nil
+}
+
+// mlkemPairVerifier checks candidate ML-KEM public keys against a private key.
+type mlkemPairVerifier struct {
+	session *pkcs11Session
+	priv    pkcs11.ObjectHandle
+
+	// info is the encapsulation key from the private key's CKA_PUBLIC_KEY_INFO, when present.
+	info []byte
+	// canProbe is set when the private key may decapsulate.
+	canProbe bool
+}
+
+func newMLKEMPairVerifier(session *pkcs11Session, priv pkcs11.ObjectHandle) *mlkemPairVerifier {
+	v := &mlkemPairVerifier{session: session, priv: priv}
+	if info := readAttributes(session, priv, pkcs11.CKA_PUBLIC_KEY_INFO)[0]; len(info) > 0 {
+		if key, err := spkiPublicKey(info); err == nil && len(key) > 0 {
+			v.info = key
+			return v
+		}
+	}
+	v.canProbe = isTrue(readAttributes(session, priv, pkcs11.CKA_DECAPSULATE)[0])
+	return v
+}
+
+// check reports whether the public key object pub, whose CKA_VALUE is value, is the public half of
+// the private key.
+func (v *mlkemPairVerifier) check(pub pkcs11.ObjectHandle, value []byte) pairMatch {
+	if v.info != nil {
+		if bytes.Equal(v.info, value) {
+			return pairVerified
+		}
+		return pairMismatch
+	}
+	if !v.canProbe {
+		return pairUnverified
+	}
+	return v.probe(pub)
+}
+
+// probe encapsulates a fresh secret to pub and decapsulates the ciphertext with the private key.
+// ML-KEM decapsulation under the wrong key does not fail but yields an unrelated secret (implicit
+// rejection), so the two secrets agree only for the genuine public half. They are throwaway
+// session objects, made readable so they can be compared, and destroyed straight away. Any
+// failure leaves the candidate unverified.
+func (v *mlkemPairVerifier) probe(pub pkcs11.ObjectHandle) pairMatch {
+	template := func() []*pkcs11.Attribute {
+		return []*pkcs11.Attribute{
+			pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_SECRET_KEY),
+			pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, pkcs11.CKK_AES),
+			pkcs11.NewAttribute(pkcs11.CKA_VALUE_LEN, 32),
+			pkcs11.NewAttribute(pkcs11.CKA_TOKEN, false),
+			pkcs11.NewAttribute(pkcs11.CKA_SENSITIVE, false),
+			pkcs11.NewAttribute(pkcs11.CKA_EXTRACTABLE, true),
+		}
+	}
+	ctx, sh := v.session.ctx, v.session.handle
+	mech := pkcs11.NewMechanism(pkcs11.CKM_ML_KEM, nil)
+
+	ciphertext, encapsulated, err := ctx.EncapsulateKey(sh, mech, pub, template())
+	if err != nil {
+		return pairUnverified
+	}
+	defer func() { _ = ctx.DestroyObject(sh, encapsulated) }()
+	decapsulated, err := ctx.DecapsulateKey(sh, mech, v.priv, template(), ciphertext)
+	if err != nil {
+		return pairUnverified
+	}
+	defer func() { _ = ctx.DestroyObject(sh, decapsulated) }()
+
+	a := readAttributes(v.session, encapsulated, pkcs11.CKA_VALUE)[0]
+	b := readAttributes(v.session, decapsulated, pkcs11.CKA_VALUE)[0]
+	defer pkcs11.Wipe(a)
+	defer pkcs11.Wipe(b)
+	if len(a) == 0 || len(b) == 0 {
+		return pairUnverified
+	}
+	if subtle.ConstantTimeCompare(a, b) == 1 {
+		return pairVerified
+	}
+	return pairMismatch
 }
 
 // FindMLKEMKeyPair retrieves a previously created ML-KEM key pair, or an error if it cannot

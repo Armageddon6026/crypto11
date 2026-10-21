@@ -501,14 +501,19 @@ func TestFindAllPairedCertificatesReturnsChain(t *testing.T) {
 	withContext(t, func(ctx *Context) {
 		chain := generateCertChain(t, "paired-leaf", "paired-intermediate", "paired-root")
 
-		// The leaf is paired with the private key by CKA_ID. The issuers above it share no id
-		// with the key and can only be reached by the chain walk.
+		// The leaf is found by CKA_ID and paired with the private key because it certifies the
+		// key pair's public key. The issuers above it share no id with the key and can only be
+		// reached by the chain walk.
 		id := randomBytes()
 		key, err := ctx.GenerateECDSAKeyPair(id, elliptic.P256())
 		require.NoError(t, err)
 		defer func() {
 			assert.NoError(t, key.Delete())
 		}()
+
+		leafTemplate := certTemplate(t, "paired-leaf", false)
+		leafTemplate.AuthorityKeyId = chain[1].cert.SubjectKeyId
+		chain[0].cert = createCert(t, leafTemplate, chain[1].cert, key.Public().(*ecdsa.PublicKey), chain[1].key)
 
 		require.NoError(t, ctx.ImportCertificate(id, chain[0].cert))
 		issuerIDs := importChain(t, ctx, chain[1:])

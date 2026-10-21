@@ -280,11 +280,12 @@ func (a AttributeSet) String() string {
 // CKA_VALUE is the value of a secret key and of a DSA, EC or ML-KEM private
 // key (it is also the DER of a certificate and the Y of a DSA public key, but
 // String cannot tell the object class, so it errs on the side of redaction);
-// the six others are the RSA private key's components. Vendor-defined
+// CKA_SEED is the seed an ML-KEM, ML-DSA or SLH-DSA private key is expanded
+// from; the six others are the RSA private key's components. Vendor-defined
 // attributes are redacted as well, since nothing here knows what they hold.
 func sensitiveAttribute(attr AttributeType) bool {
 	switch attr {
-	case pkcs11.CKA_VALUE, pkcs11.CKA_PRIVATE_EXPONENT, pkcs11.CKA_PRIME_1, pkcs11.CKA_PRIME_2, pkcs11.CKA_EXPONENT_1, pkcs11.CKA_EXPONENT_2, pkcs11.CKA_COEFFICIENT:
+	case pkcs11.CKA_VALUE, pkcs11.CKA_SEED, pkcs11.CKA_PRIVATE_EXPONENT, pkcs11.CKA_PRIME_1, pkcs11.CKA_PRIME_2, pkcs11.CKA_EXPONENT_1, pkcs11.CKA_EXPONENT_2, pkcs11.CKA_COEFFICIENT:
 		return true
 	}
 	return attr >= pkcs11.CKA_VENDOR_DEFINED

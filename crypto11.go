@@ -346,13 +346,20 @@ type Config struct {
 	ReadOnlySessions bool
 
 	// UseGCMIVFromHSM should be set to true for tokens such as CloudHSM, which ignore the supplied IV for
-	// GCM mode and generate their own. In this case, the token will write the IV used into the CK_GCM_PARAMS.
-	// If UseGCMIVFromHSM is true, we will copy this IV and overwrite the 'nonce' slice passed to Seal and Open. It
-	// is therefore necessary that the nonce is the correct length (12 bytes for CloudHSM).
+	// GCM mode and generate their own. How Seal returns that IV depends on GCMIVFromHSMControl:
+	//
+	//   - with SupplyIvForHSMGCMEncrypt, the token writes the IV into the IV buffer of CK_GCM_PARAMS, and Seal
+	//     copies it into the nonce slice, which must be GCMIVLength bytes long (12 for CloudHSM);
+	//   - without it, no IV buffer is passed, and the token appends the IV to the ciphertext and tag. The nonce
+	//     passed to Seal is not used and may be empty.
+	//
+	// Seal panics if the token turns out not to have generated an IV, since every message would then be
+	// encrypted under the same one.
 	UseGCMIVFromHSM bool
 
-	// GCMIVLength is the length of IVs to use in GCM mode. Refer to NIST SP800-38 for guidance on the length of
-	// RBG-based IVs in GCM mode. When the UseGCMIVFromHSM parameter is true
+	// GCMIVLength is the length of IVs to use in GCM mode, and the NonceSize of the AEAD NewGCM returns. It
+	// must be at least 12 bytes. Refer to NIST SP800-38D for guidance on the length of RBG-based IVs in GCM
+	// mode. When UseGCMIVFromHSM is true, it is the length of the IV the token generates.
 	GCMIVLength int
 
 	GCMIVFromHSMControl GCMIVFromHSMConfig
@@ -361,10 +368,12 @@ type Config struct {
 // GCMIVFromHSMConfig controls IV buffer management for tokens that generate their own GCM IVs.
 type GCMIVFromHSMConfig struct {
 
-	// SupplyIvForHSMGCM_encrypt controls the supply of a non-nil IV for GCM use during C_EncryptInit
+	// SupplyIvForHSMGCMEncrypt passes an IV buffer of GCMIVLength bytes to C_EncryptInit, for tokens that
+	// write the IV they generate into it. Without it the token is expected to append the IV to the ciphertext.
 	SupplyIvForHSMGCMEncrypt bool
 
-	// SupplyIvForHSMGCM_decrypt controls the supply of a non-nil IV for GCM use during C_DecryptInit
+	// SupplyIvForHSMGCMDecrypt passes the nonce to C_DecryptInit as the IV. Without it no IV is passed, for
+	// tokens that read it from the ciphertext.
 	SupplyIvForHSMGCMDecrypt bool
 }
 
@@ -692,15 +701,21 @@ func loadConfigFromFile(configLocation string) (*Config, error) {
 		return nil, fmt.Errorf("could not decode config file: %w", err)
 	}
 
-	// A file that carries the PIN is a credential and has to be protected
-	// like one. The check is on the open file, not the path, so it cannot be
-	// raced. Windows file modes do not express this and are not checked.
-	if config.Pin != "" && runtime.GOOS != "windows" {
+	// The file names the library Configure loads into this process, so anyone
+	// who can write to it can run code here, PIN or not. A file that carries
+	// the PIN is also a credential and has to be protected like one. The checks
+	// are on the open file, not the path, so they cannot be raced. Windows file
+	// modes do not express this and are not checked.
+	if runtime.GOOS != "windows" {
 		info, err := file.Stat()
 		if err != nil {
 			return nil, fmt.Errorf("could not stat config file: %w", err)
 		}
-		if mode := info.Mode().Perm(); mode&0o077 != 0 {
+		mode := info.Mode().Perm()
+		if mode&0o022 != 0 {
+			return nil, fmt.Errorf("config file %s is writable by other users (mode %04o); restrict writing to its owner (chmod go-w)", configLocation, mode)
+		}
+		if config.Pin != "" && mode&0o077 != 0 {
 			return nil, fmt.Errorf("config file %s holds a PIN but is readable by other users (mode %04o); restrict it to its owner (chmod 600) or move the PIN out of the file", configLocation, mode)
 		}
 	}

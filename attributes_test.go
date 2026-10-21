@@ -55,6 +55,7 @@ func TestAttributeSetStringRedactsKeyMaterial(t *testing.T) {
 	require.NoError(t, a.Set(pkcs11.CKA_EXPONENT_1, secret))
 	require.NoError(t, a.Set(pkcs11.CKA_EXPONENT_2, secret))
 	require.NoError(t, a.Set(pkcs11.CKA_COEFFICIENT, secret))
+	require.NoError(t, a.Set(pkcs11.CKA_SEED, secret))
 	require.NoError(t, a.Set(pkcs11.CKA_VENDOR_DEFINED+1, secret))
 
 	for _, rendered := range []string{a.String(), fmt.Sprintf("%v", a), fmt.Sprint(a)} {
@@ -67,5 +68,6 @@ func TestAttributeSetStringRedactsKeyMaterial(t *testing.T) {
 	assert.False(t, sensitiveAttribute(pkcs11.CKA_ID))
 	assert.False(t, sensitiveAttribute(pkcs11.CKA_MODULUS), "the public modulus is not a secret")
 	assert.True(t, sensitiveAttribute(pkcs11.CKA_VALUE))
+	assert.True(t, sensitiveAttribute(pkcs11.CKA_SEED), "an ML-KEM/ML-DSA/SLH-DSA seed is the private key")
 	assert.True(t, sensitiveAttribute(pkcs11.CKA_VENDOR_DEFINED))
 }
