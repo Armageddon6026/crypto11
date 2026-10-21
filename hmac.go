@@ -102,8 +102,8 @@ var hmacInfos = map[int]*hmacInfo{
 	pkcs11.CKM_SHA224_HMAC_GENERAL:     {28, 64, true},
 	pkcs11.CKM_SHA256_HMAC:             {32, 64, false},
 	pkcs11.CKM_SHA256_HMAC_GENERAL:     {32, 64, true},
-	pkcs11.CKM_SHA384_HMAC:             {48, 64, false},
-	pkcs11.CKM_SHA384_HMAC_GENERAL:     {48, 64, true},
+	pkcs11.CKM_SHA384_HMAC:             {48, 128, false},
+	pkcs11.CKM_SHA384_HMAC_GENERAL:     {48, 128, true},
 	pkcs11.CKM_SHA512_HMAC:             {64, 128, false},
 	pkcs11.CKM_SHA512_HMAC_GENERAL:     {64, 128, true},
 	pkcs11.CKM_SHA512_224_HMAC:         {28, 128, false},
@@ -117,9 +117,14 @@ var hmacInfos = map[int]*hmacInfo{
 // errHmacClosed is called if an HMAC is updated after it has finished.
 var errHmacClosed = errors.New("already called Sum()")
 
+// errInvalidMACLength is returned by NewHMAC for an output length the
+// mechanism cannot produce.
+var errInvalidMACLength = errors.New("invalid MAC length")
+
 // NewHMAC returns a new HMAC hash using the given PKCS#11 mechanism
 // and key.
-// length specifies the output size, for _GENERAL mechanisms.
+// length specifies the output size, for _GENERAL mechanisms: between 1 and the
+// full MAC size of the underlying hash.
 //
 // If the mechanism is not in the built-in list of known mechanisms then the
 // Size() function will return whatever length was, even if it is wrong.
@@ -144,12 +149,20 @@ func (key *SecretKey) NewHMAC(mech int, length int) (hash.Hash, error) {
 	if info, ok := hmacInfos[mech]; ok {
 		hi.blockSize = info.blockSize
 		if info.general {
+			// A zero length would make every Sum panic on the empty MAC, and a
+			// negative one would reach the token as a huge CK_ULONG.
+			if length < 1 || length > info.size {
+				return nil, fmt.Errorf("%w: %d bytes; mechanism %#x produces 1 to %d", errInvalidMACLength, length, mech, info.size)
+			}
 			hi.size = length
 			params = pkcs11.ULongToBytes(uint(length))
 		} else {
 			hi.size = info.size
 		}
 	} else {
+		if length < 0 {
+			return nil, fmt.Errorf("%w: %d bytes", errInvalidMACLength, length)
+		}
 		hi.size = length
 	}
 	hi.mechDescription = pkcs11.NewMechanism(uint(mech), params)

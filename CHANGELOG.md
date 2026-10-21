@@ -177,6 +177,17 @@ reporting or the Eclipse Foundation security team — and which versions receive
 
 ### Fixed
 
+- **RSA-PSS options are checked before reaching the token.** A negative `PSSOptions.SaltLength`
+  other than the two sentinels made `Sign` panic, since pkcs11-go's `NewPSSParams` panics on a
+  negative salt. It is now an error wrapping `errUnsupportedRSAOptions`, as crypto/rsa makes it.
+  An explicit salt longer than the modulus can carry is `rsa.ErrMessageTooLong`, again as in
+  crypto/rsa, and a digest whose length is not the hash's size is an error rather than something
+  left to the token, matching the PKCS#1 v1.5 path.
+- **HMAC.** `NewHMAC` reported a `BlockSize` of 64 for `CKM_SHA384_HMAC` and
+  `CKM_SHA384_HMAC_GENERAL`; SHA-384's block size is 128. For a `_GENERAL` mechanism it accepted
+  any output length: 0 made every `Sum` panic on the empty MAC, and a negative length reached the
+  token as a huge `CK_ULONG`. Lengths outside 1 to the hash's full size are now rejected with
+  `errInvalidMACLength`. The size table is tested against Go's own hash implementations.
 - Key enumeration no longer aborts on a key type the package cannot represent
   ([#68](https://github.com/eclipse-keypont/crypto11/issues/68), reported by
   [@Knacktus](https://github.com/Knacktus) and independently run into by

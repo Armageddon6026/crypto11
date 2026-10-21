@@ -573,21 +573,41 @@ func maxPSSSaltLength(pubKey crypto.PublicKey, hLen uint) (uint, error) {
 	return uint(sLen), nil
 }
 
+// pssSaltLength resolves opts.SaltLength to the salt length handed to the
+// token, rejecting what crypto/rsa rejects: a negative length other than the
+// two sentinels, and a salt longer than the modulus can carry. The second check
+// needs the public key; without one (a key found by FindRSAPrivateKey, say) an
+// explicit length is left to the token to judge.
+func pssSaltLength(pubKey crypto.PublicKey, saltLength int, hLen uint) (uint, error) {
+	switch saltLength {
+	case rsa.PSSSaltLengthAuto:
+		return maxPSSSaltLength(pubKey, hLen)
+	case rsa.PSSSaltLengthEqualsHash:
+		return hLen, nil
+	}
+	if saltLength < 0 {
+		return 0, fmt.Errorf("%w: PSS salt length %d", errUnsupportedRSAOptions, saltLength)
+	}
+	sLen := uint(saltLength)
+	if limit, err := maxPSSSaltLength(pubKey, hLen); err == nil && sLen > limit {
+		return 0, rsa.ErrMessageTooLong
+	}
+	return sLen, nil
+}
+
 func signPSS(session *pkcs11Session, key *pkcs11PrivateKeyRSA, digest []byte, opts *rsa.PSSOptions) ([]byte, error) {
 	var hMech, mgf, hLen, sLen uint
 	var err error
 	if hMech, mgf, hLen, err = hashToPKCS11(opts.Hash); err != nil {
 		return nil, err
 	}
-	switch opts.SaltLength {
-	case rsa.PSSSaltLengthAuto:
-		if sLen, err = maxPSSSaltLength(key.pubKey, hLen); err != nil {
-			return nil, err
-		}
-	case rsa.PSSSaltLengthEqualsHash:
-		sLen = hLen
-	default:
-		sLen = uint(opts.SaltLength)
+	// CKM_RSA_PKCS_PSS signs a digest it is told the hash of; one of another
+	// length is a caller error, reported as signPKCS1v15 reports it.
+	if len(digest) != int(hLen) {
+		return nil, fmt.Errorf("digest is %d bytes; %v produces %d", len(digest), opts.Hash, hLen)
+	}
+	if sLen, err = pssSaltLength(key.pubKey, opts.SaltLength, hLen); err != nil {
+		return nil, err
 	}
 	// The binding marshals CK_RSA_PKCS_PSS_PARAMS itself, so we no longer have
 	// to hand-pack three CK_ULONGs and hope the layout matches the token's.
