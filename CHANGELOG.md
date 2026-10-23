@@ -60,9 +60,9 @@ was replaced, the config file was renamed, and the API surface was hardened afte
   `FindPrivateKey` families, and their public half as `crypto/ed25519.PublicKey`, so they drop
   into `x509.CreateCertificate` and `ed25519.Verify` unchanged. Only pure Ed25519 is signed:
   Ed25519ph and Ed25519ctx need `CK_EDDSA_PARAMS`, which the binding does not yet marshal, and
-  `Sign` refuses them rather than silently signing the pure variant. An empty message is refused
-  too: the binding passes it to `C_Sign` as a NULL pointer, which SoftHSM2 rejects while leaving
-  the operation active on the session. `CKA_EC_POINT` is accepted
+  `Sign` refuses them rather than silently signing the pure variant. An empty message is signed
+  like any other: pkcs11-go now passes zero-length input as a valid buffer, where it used to pass
+  a NULL pointer that SoftHSM2 rejects. `CKA_EC_POINT` is accepted
   both DER-wrapped and bare, `CKA_EC_PARAMS` as the OID or the `"edwards25519"` string. An
   Ed448 key — same `CKK_EC_EDWARDS` key type, no Go type to return it as — is skipped by
   enumeration rather than failing it, and a template asking for one is refused before any
@@ -220,6 +220,10 @@ reporting or the Eclipse Foundation security team — and which versions receive
 - **CBC `CryptBlocks` on empty input** is a no-op, as it is for crypto/cipher's block modes. It
   used to pass the empty slice to the token, and on SoftHSM2 panicked with
   `CKR_ARGUMENTS_BAD`.
+- **Empty inputs.** AES-GCM `Seal` with an empty plaintext, which authenticates associated data
+  only and is a legitimate use, panicked with `CKR_ARGUMENTS_BAD` on SoftHSM2. Ed25519 refused to
+  sign an empty message. Both came from pkcs11-go passing zero-length input to the module as a
+  NULL pointer; with the pkcs11-go release that passes a valid buffer, both work.
 - Key enumeration no longer aborts on a key type the package cannot represent
   ([#68](https://github.com/eclipse-keypont/crypto11/issues/68), reported by
   [@Knacktus](https://github.com/Knacktus) and independently run into by
@@ -333,9 +337,9 @@ reporting or the Eclipse Foundation security team — and which versions receive
   and marked deprecated. Existing code compiles and behaves as before; new code should use
   `pkcs11.CKA_*` directly, which `AttributeSet.Set` and every other `AttributeType` parameter
   already accept. crypto11 itself now uses the binding's
-  constants throughout. `AttributeSet.String` still renders the old `Cka*` names; switching it to
-  the binding's generated names (`cryptoki.AttributeName`) waits on the pkcs11-go release that
-  adds them.
+  constants throughout. `AttributeSet.String` names attributes with the binding's generated
+  `cryptoki.AttributeName` (`CKA_VALUE`, not `CkaValue`), which also covers every attribute
+  the old 180-line name table did not, instead of printing `Unknown` for them.
 
 ### CI/CD & supply chain
 

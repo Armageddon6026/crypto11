@@ -83,6 +83,13 @@ func testHardSymmetric(t *testing.T, ctx *Context, keytype int, bits int) {
 			skipIfMechUnsupported(t, key2.context, pkcs11.CKM_AES_GCM)
 			testAEADMode(t, aead, 127, 129)
 		})
+		t.Run("GCMHardEmptyPlaintext", func(t *testing.T) {
+			aead, err := key2.NewGCM()
+			require.NoError(t, err)
+			skipIfMechUnsupported(t, key2.context, pkcs11.CKM_AES_GCM)
+			// Associated data only: the ciphertext is the bare tag.
+			testAEADMode(t, aead, 0, 129)
+		})
 		// TODO check that hard/soft is consistent!
 	}
 	// TODO CFB

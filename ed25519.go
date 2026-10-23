@@ -18,10 +18,6 @@ import (
 
 var errUnsupportedEdDSAOptions = errors.New("unsupported Ed25519 signing options: only pure Ed25519 is supported")
 
-// pkcs11-go (still as of v1.2.0-rc3) hands C_Sign a NULL pointer for an empty message; SoftHSM2
-// rejects that and leaves the operation active, poisoning the session.
-var errEmptyMessage = errors.New("ed25519: signing an empty message is not supported")
-
 type pkcs11PrivateKeyEd25519 struct {
 	pkcs11PrivateKey
 }
@@ -175,13 +171,10 @@ func (c *Context) GenerateEd25519KeyPairWithAttributes(public, private Attribute
 
 // Sign signs a message using an Ed25519 key, completing crypto.Signer for
 // pkcs11PrivateKeyEd25519. As with crypto/ed25519, message is the full message
-// and opts must select no hash; Ed25519ph and Ed25519ctx are refused, as is an
-// empty message. The message is signed in a single-part operation. The return
+// and opts must select no hash; Ed25519ph and Ed25519ctx are refused. The
+// message, which may be empty, is signed in a single-part operation. The return
 // value is the raw 64-byte signature.
 func (s *pkcs11PrivateKeyEd25519) Sign(_ io.Reader, message []byte, opts crypto.SignerOpts) (signature []byte, err error) {
-	if len(message) == 0 {
-		return nil, errEmptyMessage
-	}
 	if opts != nil {
 		if hash := opts.HashFunc(); hash != crypto.Hash(0) {
 			return nil, fmt.Errorf("%w: hash %v", errUnsupportedEdDSAOptions, hash)

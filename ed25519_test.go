@@ -127,8 +127,8 @@ func TestEd25519EmptyMessage(t *testing.T) {
 	for name, message := range map[string][]byte{"nil": nil, "empty": {}} {
 		t.Run(name, func(t *testing.T) {
 			sig, err := key.Sign(nil, message, crypto.Hash(0))
-			require.ErrorIs(t, err, errEmptyMessage)
-			assert.Nil(t, sig)
+			require.NoError(t, err)
+			assert.True(t, ed25519.Verify(pub, message, sig), "signature over the empty message must verify")
 
 			next := []byte("sign after an empty message")
 			sig, err = key.Sign(nil, next, crypto.Hash(0))

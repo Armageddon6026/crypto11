@@ -62,7 +62,7 @@ func TestAttributeSetStringRedactsKeyMaterial(t *testing.T) {
 		assert.NotContains(t, rendered, hex.EncodeToString(secret), "secret must not appear in hex")
 		assert.NotContains(t, rendered, string(secret), "secret must not appear raw")
 		assert.Contains(t, rendered, hex.EncodeToString([]byte("public-id")), "non-sensitive attributes still render")
-		assert.Contains(t, rendered, "CkaValue: <redacted, 32 bytes>")
+		assert.Contains(t, rendered, "CKA_VALUE: <redacted, 32 bytes>")
 	}
 
 	assert.False(t, sensitiveAttribute(pkcs11.CKA_ID))
