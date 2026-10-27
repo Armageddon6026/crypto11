@@ -9,6 +9,7 @@ import (
 	"crypto/elliptic"
 	"testing"
 
+	pkcs11 "github.com/eclipse-keypont/pkcs11-go/cryptoki"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/stretchr/testify/require"
@@ -91,15 +92,15 @@ func TestErrorAfterClosed(t *testing.T) {
 	_, err = ctx.FindCertificateChain(bytes, nil, nil)
 	assert.Equal(t, errClosed, err)
 
-	_, err = ctx.GetAttribute(nil, CkaLabel)
+	_, err = ctx.GetAttribute(nil, pkcs11.CKA_LABEL)
 	assert.Equal(t, errClosed, err)
 
-	_, err = ctx.GetAttributes(nil, []AttributeType{CkaLabel})
+	_, err = ctx.GetAttributes(nil, []AttributeType{pkcs11.CKA_LABEL})
 	assert.Equal(t, errClosed, err)
 
-	_, err = ctx.GetPubAttribute(nil, CkaLabel)
+	_, err = ctx.GetPubAttribute(nil, pkcs11.CKA_LABEL)
 	assert.Equal(t, errClosed, err)
 
-	_, err = ctx.GetPubAttributes(nil, []AttributeType{CkaLabel})
+	_, err = ctx.GetPubAttributes(nil, []AttributeType{pkcs11.CKA_LABEL})
 	assert.Equal(t, errClosed, err)
 }

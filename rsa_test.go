@@ -145,6 +145,61 @@ func testRsaSigningPSS(t *testing.T, key crypto.Signer, hashFunction crypto.Hash
 			require.NoError(t, err)
 		})
 	}
+
+	// Bad options are errors, as crypto/rsa makes them, not panics: the
+	// binding's NewPSSParams panics on a negative salt length.
+	badOptions := map[string]struct {
+		digest []byte
+		opts   *rsa.PSSOptions
+	}{
+		"NegativeSaltLength": {plaintextHash, &rsa.PSSOptions{SaltLength: -2, Hash: hashFunction}},
+		"OversizedSalt":      {plaintextHash, &rsa.PSSOptions{SaltLength: rsaPubkey.Size(), Hash: hashFunction}},
+		"WrongDigestLength":  {plaintextHash[1:], &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash, Hash: hashFunction}},
+	}
+	for name, bad := range badOptions {
+		t.Run(name, func(t *testing.T) {
+			var err error
+			require.NotPanics(t, func() { _, err = key.Sign(rand.Reader, bad.digest, bad.opts) })
+			require.Error(t, err)
+		})
+	}
+}
+
+// TestPSSSaltLength checks how PSSOptions.SaltLength is resolved before it
+// reaches the token, without needing one.
+func TestPSSSaltLength(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	const hLen = 32
+	limit := uint(256 - 2 - hLen)
+
+	for _, c := range []struct {
+		name       string
+		pub        crypto.PublicKey
+		saltLength int
+		want       uint
+		wantErr    error
+	}{
+		{"Auto", &key.PublicKey, rsa.PSSSaltLengthAuto, limit, nil},
+		{"EqualsHash", &key.PublicKey, rsa.PSSSaltLengthEqualsHash, hLen, nil},
+		{"Explicit", &key.PublicKey, 20, 20, nil},
+		{"ExplicitMaximum", &key.PublicKey, int(limit), limit, nil},
+		{"ExplicitTooLong", &key.PublicKey, int(limit) + 1, 0, rsa.ErrMessageTooLong},
+		{"Negative", &key.PublicKey, -2, 0, errUnsupportedRSAOptions},
+		// Without a public key only the token can judge an explicit length.
+		{"ExplicitNoPublicKey", nil, 20, 20, nil},
+		{"AutoNoPublicKey", nil, rsa.PSSSaltLengthAuto, 0, errUnsupportedRSAOptions},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := pssSaltLength(c.pub, c.saltLength, hLen)
+			if c.wantErr != nil {
+				require.ErrorIs(t, err, c.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, c.want, got)
+		})
+	}
 }
 
 // TestMaxPSSSaltLength checks that rsa.PSSSaltLengthAuto resolves to the same

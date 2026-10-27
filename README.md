@@ -16,6 +16,7 @@
 [![Build](https://img.shields.io/github/actions/workflow/status/eclipse-keypont/crypto11/ci.yml?branch=master&style=flat-square&logo=githubactions&logoColor=white&label=build)](https://github.com/eclipse-keypont/crypto11/actions/workflows/ci.yml)
 [![Lint](https://img.shields.io/github/actions/workflow/status/eclipse-keypont/crypto11/lint.yml?branch=master&style=flat-square&logo=githubactions&logoColor=white&label=lint)](https://github.com/eclipse-keypont/crypto11/actions/workflows/lint.yml)
 [![Vulnerability scan](https://img.shields.io/github/actions/workflow/status/eclipse-keypont/crypto11/govulncheck.yml?branch=master&style=flat-square&logo=githubactions&logoColor=white&label=vulnerability%20scan)](https://github.com/eclipse-keypont/crypto11/actions/workflows/govulncheck.yml)
+[![Security scan](https://img.shields.io/github/actions/workflow/status/eclipse-keypont/crypto11/gosec.yml?branch=master&style=flat-square&logo=githubactions&logoColor=white&label=security%20scan)](https://github.com/eclipse-keypont/crypto11/actions/workflows/gosec.yml)
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/eclipse-keypont/crypto11/codeql.yml?branch=master&style=flat-square&logo=githubactions&logoColor=white&label=codeql)](https://github.com/eclipse-keypont/crypto11/actions/workflows/codeql.yml)
 [![Fuzz](https://img.shields.io/github/actions/workflow/status/eclipse-keypont/crypto11/fuzz.yml?style=flat-square&logo=githubactions&logoColor=white&label=fuzz)](https://github.com/eclipse-keypont/crypto11/actions/workflows/fuzz.yml)
 [![Release build](https://img.shields.io/github/actions/workflow/status/eclipse-keypont/crypto11/release.yml?style=flat-square&logo=githubactions&logoColor=white&label=release%20build)](https://github.com/eclipse-keypont/crypto11/actions/workflows/release.yml)
@@ -48,6 +49,29 @@ crypto11 is part of [Eclipse KeyPont](https://projects.eclipse.org/projects/tech
 *KeyPont* — "key" plus the French *pont* ("bridge") — reflects the project's goal: bridging Go
 applications to cryptographic keys held in HSMs and other PKCS#11-backed hardware.
 
+## How crypto11 fits in
+
+```mermaid
+%%{init: {"flowchart": {"nodeSpacing": 16, "rankSpacing": 32, "padding": 8}}}%%
+flowchart TB
+    APP["your Go application"]
+    GOSE(["gose<br/>JOSE · JWT · JWK · JWS · JWKS"])
+    C11(["crypto11<br/>crypto.Signer / crypto.Decrypter"])
+    P11(["pkcs11-go<br/>cryptoki + p11"])
+    DRV["vendor PKCS #11 driver"]
+    HSM{{"HSM / TPM · keys"}}
+
+    APP --> GOSE
+    APP --> C11
+    GOSE --> C11
+    C11 --> P11
+    P11 <-->|"PKCS #11 C API<br/>up to v3.2"| DRV
+    DRV <-->|"USB · network · TPM"| HSM
+
+    classDef main fill:#1f6feb,stroke:#1f6feb,color:#fff,font-weight:bold,font-size:16px
+    class C11 main
+```
+
 # Supported Algorithms
 
 ## Asymmetric keys
@@ -76,7 +100,7 @@ Requires a PKCS#11 v3.2-capable token such as [SoftHSMv3](https://github.com/pqc
 
 | Algorithm | Key sizes         | Modes    | Notes                                                       |
 |-----------|-------------------|----------|-------------------------------------------------------------|
-| AES       | 128, 192, 256 bit | CBC, GCM | `cipher.Block`, `cipher.BlockMode`, `BlockModeCloser`, AEAD |
+| AES       | 128, 192, 256 bit | CBC, GCM | `cipher.BlockMode`, `BlockModeCloser`, `cipher.AEAD`        |
 | DES3      | 192 bit           | CBC      | Token support varies                                        |
 
 ## Other
@@ -135,6 +159,9 @@ A minimal configuration file looks like this:
 - `TokenLabel` is the `CKA_LABEL` of the token you wish to use.
 - `Pin` is the password for the `CKU_USER` user.
 - `UseGCMIVFromHSM` generates the IV for GCM mechanism from the HSM
+- `ReadOnlySessions` opens every session without `CKF_RW_SESSION`, for tokens that refuse a
+  read/write session (`CKR_TOKEN_WRITE_PROTECTED`). Key generation, key import and object deletion
+  then fail with `CKR_SESSION_READ_ONLY`; use it only when the keys are provisioned elsewhere.
 
 A configuration file that contains a `Pin` is a credential: `ConfigureFromFile` refuses one that
 is readable by anyone but its owner (`chmod 600`; not checked on Windows). Better still, keep the
@@ -459,11 +486,12 @@ Beware that a lot of unit tests may fail otherwise. You must fine-tune your usec
   The reason for this is that it is not possible for crypto11 to guarantee the constant-time behavior in the
   specification.
   See [issue #5](https://github.com/eclipse-keypont/crypto11/issues/5) for further discussion.
-* Symmetric crypto support via [cipher.Block](https://golang.org/pkg/crypto/cipher/#Block) is very slow.
-  You can use the `BlockModeCloser` API
-  (over 400 times as fast on my computer)
-  but you must call the Close()
-  interface (not found in [cipher.BlockMode](https://golang.org/pkg/crypto/cipher/#BlockMode)).
+* `SecretKey` is not a [cipher.Block](https://golang.org/pkg/crypto/cipher/#Block): each block
+  would cost a round trip to the token. CBC runs on the token through
+  [cipher.BlockMode](https://golang.org/pkg/crypto/cipher/#BlockMode) instead (`NewCBCEncrypter`,
+  `NewCBCDecrypter`). Prefer the `BlockModeCloser` variants (`NewCBCEncrypterCloser`,
+  `NewCBCDecrypterCloser`) and call `Close()`, which `cipher.BlockMode` does not have: the plain
+  variants hold a session until the garbage collector finalizes them.
   See [issue #6](https://github.com/eclipse-keypont/crypto11/issues/6) for further discussion.
 * Unit tests may interfere between them. You should fine tune and select the Go test file you want to run, one at a
   time.

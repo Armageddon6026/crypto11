@@ -83,6 +83,13 @@ func testHardSymmetric(t *testing.T, ctx *Context, keytype int, bits int) {
 			skipIfMechUnsupported(t, key2.context, pkcs11.CKM_AES_GCM)
 			testAEADMode(t, aead, 127, 129)
 		})
+		t.Run("GCMHardEmptyPlaintext", func(t *testing.T) {
+			aead, err := key2.NewGCM()
+			require.NoError(t, err)
+			skipIfMechUnsupported(t, key2.context, pkcs11.CKM_AES_GCM)
+			// Associated data only: the ciphertext is the bare tag.
+			testAEADMode(t, aead, 0, 129)
+		})
 		// TODO check that hard/soft is consistent!
 	}
 	// TODO CFB
@@ -226,6 +233,40 @@ func TestSymmetricRequiredArgs(t *testing.T) {
 
 	_, err = ctx.GenerateSecretKeyWithLabel(val, nil, 128, CipherAES)
 	require.Error(t, err)
+}
+
+// TestHMACCiphersPreferStandardKeyGen pins the order the HMAC ciphers try key
+// generation in: the PKCS#11 v3.0 mechanism first, the nShield one next, the
+// generic-secret fallback last.
+func TestHMACCiphersPreferStandardKeyGen(t *testing.T) {
+	for _, c := range []struct {
+		cipher  *SymmetricCipher
+		keyType uint
+		keyGen  uint
+	}{
+		{CipherHMACSHA1, pkcs11.CKK_SHA_1_HMAC, pkcs11.CKM_SHA_1_KEY_GEN},
+		{CipherHMACSHA224, pkcs11.CKK_SHA224_HMAC, pkcs11.CKM_SHA224_KEY_GEN},
+		{CipherHMACSHA256, pkcs11.CKK_SHA256_HMAC, pkcs11.CKM_SHA256_KEY_GEN},
+		{CipherHMACSHA384, pkcs11.CKK_SHA384_HMAC, pkcs11.CKM_SHA384_KEY_GEN},
+		{CipherHMACSHA512, pkcs11.CKK_SHA512_HMAC, pkcs11.CKM_SHA512_KEY_GEN},
+	} {
+		params := c.cipher.GenParams
+		require.Len(t, params, 3)
+		require.Equal(t, SymmetricGenParams{KeyType: c.keyType, GenMech: c.keyGen}, params[0])
+		require.Equal(t, c.keyType, params[1].KeyType)
+		require.NotZero(t, params[1].GenMech&pkcs11.CKM_VENDOR_DEFINED, "second choice is the vendor mechanism")
+		require.Equal(t, SymmetricGenParams{KeyType: pkcs11.CKK_GENERIC_SECRET, GenMech: pkcs11.CKM_GENERIC_SECRET_KEY_GEN}, params[2])
+	}
+}
+
+// TestMechanismAvailable checks the probe key generation uses to skip
+// mechanisms a token does not have.
+func TestMechanismAvailable(t *testing.T) {
+	ctx := testContext(t)
+	skipIfMechUnsupported(t, ctx, pkcs11.CKM_AES_KEY_GEN)
+
+	require.True(t, ctx.mechanismAvailable(pkcs11.CKM_AES_KEY_GEN))
+	require.False(t, ctx.mechanismAvailable(pkcs11.CKM_VENDOR_DEFINED|0x0bad0bad), "a mechanism no token defines")
 }
 
 // TODO BenchmarkGCM along the same lines as above

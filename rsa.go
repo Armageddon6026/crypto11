@@ -46,6 +46,10 @@ func exportRSAPublicKey(session *pkcs11Session, pubHandle pkcs11.ObjectHandle) (
 	}
 	var modulus = new(big.Int)
 	modulus.SetBytes(exported[0].Value)
+	// An RSA modulus is the product of two odd primes: a zero or even one is not a key.
+	if modulus.Sign() <= 0 || modulus.Bit(0) == 0 {
+		return nil, errMalformedRSAPublicKey
+	}
 	var bigExponent = new(big.Int)
 	bigExponent.SetBytes(exported[1].Value)
 	if bigExponent.BitLen() > 32 {
@@ -230,13 +234,13 @@ func (c *Context) FindRSAPrivateKeys(id []byte, label []byte) (pks []RSAPrivateK
 	attributes := NewAttributeSet()
 
 	if len(id) > 0 {
-		err = attributes.Set(CkaId, id)
+		err = attributes.Set(pkcs11.CKA_ID, id)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if len(label) > 0 {
-		err = attributes.Set(CkaLabel, label)
+		err = attributes.Set(pkcs11.CKA_LABEL, label)
 		if err != nil {
 			return nil, err
 		}
@@ -258,14 +262,14 @@ func (c *Context) FindRSAPrivateKeysWithAttributes(attributes AttributeSet) (pks
 
 	var keys []RSAPrivateKey
 
-	if _, ok := attributes[CkaClass]; ok {
+	if _, ok := attributes[pkcs11.CKA_CLASS]; ok {
 		return nil, fmt.Errorf("keypair attribute set must not contain CkaClass")
 	}
 
 	err = c.withSession(func(session *pkcs11Session) error {
 		// Add the private key class to the template to find the private half
 		privAttributes := attributes.Copy()
-		err = privAttributes.Set(CkaClass, pkcs11.CKO_PRIVATE_KEY)
+		err = privAttributes.Set(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY)
 		if err != nil {
 			return err
 		}
@@ -351,10 +355,11 @@ func (c *Context) FindRSAKeyPair(id []byte, label []byte) (SignerDecrypter, erro
 // FindRSAKeyPairs retrieves all matching asymmetric RSA key pairs, or a nil slice if none can be
 // found.
 // At least one of id and label must be specified.
-// Only private keys that have a non-empty CKA_ID will be found, as this is required to locate the
-// matching public key.
-// If the private key is found, but the public key with a corresponding CKA_ID is not, the key is
-// not returned because we cannot implement crypto.Signer or SignerDecrypter without the public key.
+// The public half is a public key object, or failing that a certificate, carrying the private
+// key's CKA_ID (and CKA_LABEL). Any session on the token can create such objects, so each one is
+// checked against the private key and one holding a different key is never used. If no public
+// half is found, the key is not returned because we cannot implement crypto.Signer or
+// SignerDecrypter without the public key.
 func (c *Context) FindRSAKeyPairs(id []byte, label []byte) (signer []SignerDecrypter, err error) {
 	if c.closed.Get() {
 		return nil, errClosed
@@ -367,13 +372,13 @@ func (c *Context) FindRSAKeyPairs(id []byte, label []byte) (signer []SignerDecry
 	attributes := NewAttributeSet()
 
 	if len(id) > 0 {
-		err = attributes.Set(CkaId, id)
+		err = attributes.Set(pkcs11.CKA_ID, id)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if len(label) > 0 {
-		err = attributes.Set(CkaLabel, label)
+		err = attributes.Set(pkcs11.CKA_LABEL, label)
 		if err != nil {
 			return nil, err
 		}
@@ -386,10 +391,11 @@ func (c *Context) FindRSAKeyPairs(id []byte, label []byte) (signer []SignerDecry
 // none can be found.
 // The given attributes are matched against the private half only. Then the public half with a
 // matching CKA_ID and CKA_LABEL values is found.
-// Only private keys that have a non-empty CKA_ID will be found, as this is required to locate the
-// matching public key.
-// If the private key is found, but the public key with a corresponding CKA_ID is not, the key is
-// not returned because we cannot implement crypto.Signer or SignerDecrypter without the public key.
+// The public half is a public key object, or failing that a certificate, carrying the private
+// key's CKA_ID (and CKA_LABEL). Any session on the token can create such objects, so each one is
+// checked against the private key and one holding a different key is never used. If no public
+// half is found, the key is not returned because we cannot implement crypto.Signer or
+// SignerDecrypter without the public key.
 // Private keys that are not RSA are skipped.
 func (c *Context) FindRSAKeyPairsWithAttributes(attributes AttributeSet) (signer []SignerDecrypter, err error) {
 	if c.closed.Get() {
@@ -398,14 +404,14 @@ func (c *Context) FindRSAKeyPairsWithAttributes(attributes AttributeSet) (signer
 
 	var keys []SignerDecrypter
 
-	if _, ok := attributes[CkaClass]; ok {
+	if _, ok := attributes[pkcs11.CKA_CLASS]; ok {
 		return nil, fmt.Errorf("keypair attribute set must not contain CkaClass")
 	}
 
 	err = c.withSession(func(session *pkcs11Session) error {
 		// Add the private key class to the template to find the private half
 		privAttributes := attributes.Copy()
-		err = privAttributes.Set(CkaClass, pkcs11.CKO_PRIVATE_KEY)
+		err = privAttributes.Set(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY)
 		if err != nil {
 			return err
 		}
@@ -444,10 +450,11 @@ func (c *Context) FindRSAKeyPairsWithAttributes(attributes AttributeSet) (signer
 // SignerDecrypter, so this is the one-call form of "give me everything on this token I can decrypt
 // with".
 //
-// Only private keys that have a non-empty CKA_ID will be found, as this is required to locate the
-// matching public key.
-// If the private key is found, but the public key with a corresponding CKA_ID is not, the key is
-// not returned because we cannot implement crypto.Signer or SignerDecrypter without the public key.
+// The public half is a public key object, or failing that a certificate, carrying the private
+// key's CKA_ID (and CKA_LABEL). Any session on the token can create such objects, so each one is
+// checked against the private key and one holding a different key is never used. If no public
+// half is found, the key is not returned because we cannot implement crypto.Signer or
+// SignerDecrypter without the public key.
 // Private keys that are not RSA are skipped.
 func (c *Context) FindAllRSAKeyPairs() ([]SignerDecrypter, error) {
 	if c.closed.Get() {
@@ -487,8 +494,21 @@ func (priv *pkcs11PrivateKeyRSA) Decrypt(_ io.Reader, ciphertext []byte, options
 		}
 		return err
 	})
+	var decryptErr *rsaDecryptError
+	if errors.As(err, &decryptErr) {
+		return nil, rsa.ErrDecryption
+	}
 	return plaintext, err
 }
+
+// rsaDecryptError is a failure of C_Decrypt itself. It carries the token's reason as far as the
+// session pool, which has to see it to retire a broken session, and Decrypt then reports
+// rsa.ErrDecryption, as crypto/rsa does. Which error the token gave (bad padding, wrong length,
+// a general error) is what a padding oracle is built from.
+type rsaDecryptError struct{ cause error }
+
+func (e *rsaDecryptError) Error() string { return e.cause.Error() }
+func (e *rsaDecryptError) Unwrap() error { return e.cause }
 
 func decryptPKCS1v15(session *pkcs11Session, key *pkcs11PrivateKeyRSA, ciphertext []byte, sessionKeyLen int) ([]byte, error) {
 	if sessionKeyLen != 0 {
@@ -500,15 +520,7 @@ func decryptPKCS1v15(session *pkcs11Session, key *pkcs11PrivateKeyRSA, ciphertex
 	}
 	plaintext, err := session.ctx.Decrypt(session.handle, ciphertext)
 	if err != nil {
-		// The token's reason — bad padding, wrong length — is exactly what a
-		// padding oracle is built from. Collapse it to the error crypto/rsa
-		// itself uses, unless the session is what failed: that one has to stay
-		// visible so the pool can recycle it.
-		var p11Err pkcs11.Error
-		if errors.As(err, &p11Err) && (p11Err == pkcs11.CKR_ENCRYPTED_DATA_INVALID || p11Err == pkcs11.CKR_ENCRYPTED_DATA_LEN_RANGE) {
-			return nil, rsa.ErrDecryption
-		}
-		return nil, err
+		return nil, &rsaDecryptError{err}
 	}
 	return plaintext, nil
 }
@@ -538,7 +550,11 @@ func decryptOAEP(session *pkcs11Session, key *pkcs11PrivateKeyRSA, ciphertext []
 	if err != nil {
 		return nil, err
 	}
-	return session.ctx.Decrypt(session.handle, ciphertext)
+	plaintext, err := session.ctx.Decrypt(session.handle, ciphertext)
+	if err != nil {
+		return nil, &rsaDecryptError{err}
+	}
+	return plaintext, nil
 }
 
 func hashToPKCS11(hashFunction crypto.Hash) (hashAlg uint, mgfAlg uint, hashLen uint, err error) {
@@ -573,21 +589,41 @@ func maxPSSSaltLength(pubKey crypto.PublicKey, hLen uint) (uint, error) {
 	return uint(sLen), nil
 }
 
+// pssSaltLength resolves opts.SaltLength to the salt length handed to the
+// token, rejecting what crypto/rsa rejects: a negative length other than the
+// two sentinels, and a salt longer than the modulus can carry. The second check
+// needs the public key; without one (a key found by FindRSAPrivateKey, say) an
+// explicit length is left to the token to judge.
+func pssSaltLength(pubKey crypto.PublicKey, saltLength int, hLen uint) (uint, error) {
+	switch saltLength {
+	case rsa.PSSSaltLengthAuto:
+		return maxPSSSaltLength(pubKey, hLen)
+	case rsa.PSSSaltLengthEqualsHash:
+		return hLen, nil
+	}
+	if saltLength < 0 {
+		return 0, fmt.Errorf("%w: PSS salt length %d", errUnsupportedRSAOptions, saltLength)
+	}
+	sLen := uint(saltLength)
+	if limit, err := maxPSSSaltLength(pubKey, hLen); err == nil && sLen > limit {
+		return 0, rsa.ErrMessageTooLong
+	}
+	return sLen, nil
+}
+
 func signPSS(session *pkcs11Session, key *pkcs11PrivateKeyRSA, digest []byte, opts *rsa.PSSOptions) ([]byte, error) {
 	var hMech, mgf, hLen, sLen uint
 	var err error
 	if hMech, mgf, hLen, err = hashToPKCS11(opts.Hash); err != nil {
 		return nil, err
 	}
-	switch opts.SaltLength {
-	case rsa.PSSSaltLengthAuto:
-		if sLen, err = maxPSSSaltLength(key.pubKey, hLen); err != nil {
-			return nil, err
-		}
-	case rsa.PSSSaltLengthEqualsHash:
-		sLen = hLen
-	default:
-		sLen = uint(opts.SaltLength)
+	// CKM_RSA_PKCS_PSS signs a digest it is told the hash of; one of another
+	// length is a caller error, reported as signPKCS1v15 reports it.
+	if len(digest) != int(hLen) {
+		return nil, fmt.Errorf("digest is %d bytes; %v produces %d", len(digest), opts.Hash, hLen)
+	}
+	if sLen, err = pssSaltLength(key.pubKey, opts.SaltLength, hLen); err != nil {
+		return nil, err
 	}
 	// The binding marshals CK_RSA_PKCS_PSS_PARAMS itself, so we no longer have
 	// to hand-pack three CK_ULONGs and hope the layout matches the token's.
@@ -660,6 +696,33 @@ func (priv *pkcs11PrivateKeyRSA) Sign(_ io.Reader, digest []byte, opts crypto.Si
 	if err != nil {
 		return nil, err
 	}
+	if err := checkRSASignature(priv.pubKey, digest, signature, opts); err != nil {
+		return nil, err
+	}
+	return signature, nil
+}
 
-	return signature, err
+// errRSASignatureCheck is returned when a signature the token produced does not verify.
+var errRSASignatureCheck = errors.New("crypto11: RSA signature from the token does not verify; it was not returned")
+
+// checkRSASignature verifies a signature the token returned before it is released. An RSA-CRT
+// signature computed with a fault, in the token's hardware or software, reveals the private key to
+// anyone who holds it and the public key, so one that does not verify is never returned. A key
+// found without its public half, or one shorter than the 1024 bits crypto/rsa will verify with,
+// is not checked.
+func checkRSASignature(pub crypto.PublicKey, digest, signature []byte, opts crypto.SignerOpts) error {
+	rpub, ok := pub.(*rsa.PublicKey)
+	if !ok || rpub == nil || rpub.N.BitLen() < 1024 {
+		return nil
+	}
+	var err error
+	if o, ok := opts.(*rsa.PSSOptions); ok {
+		err = rsa.VerifyPSS(rpub, o.Hash, digest, signature, &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthAuto, Hash: o.Hash})
+	} else {
+		err = rsa.VerifyPKCS1v15(rpub, opts.HashFunc(), digest, signature)
+	}
+	if err != nil {
+		return errRSASignatureCheck
+	}
+	return nil
 }

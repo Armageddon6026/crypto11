@@ -145,6 +145,11 @@ func (bmc *blockModeCloser) CryptBlocks(dst, src []byte) {
 	if len(src)%bmc.blockSize != 0 {
 		panic("input is not a whole number of blocks")
 	}
+	if len(src) == 0 {
+		// Nothing to process, as with crypto/cipher's own block modes. The
+		// token is not called: some reject an empty update outright.
+		return
+	}
 	var result []byte
 	var err error
 	switch bmc.mode {

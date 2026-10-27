@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	pkcs11 "github.com/eclipse-keypont/pkcs11-go/cryptoki"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -70,7 +71,7 @@ func TestCertificateAttributes(t *testing.T) {
 	require.NoError(t, err)
 
 	template := NewAttributeSet()
-	err = template.Set(CkaSerialNumber, derSerial)
+	err = template.Set(pkcs11.CKA_SERIAL_NUMBER, derSerial)
 	require.NoError(t, err)
 
 	err = ctx.ImportCertificateWithAttributes(template, cert)
@@ -427,11 +428,11 @@ func TestFindCertificateChainFallsBackToKeyID(t *testing.T) {
 		require.NoError(t, err)
 
 		// A subject the issuer search cannot match, leaving only the key identifier.
-		require.NoError(t, template.Set(CkaSubject, randomBytes()))
+		require.NoError(t, template.Set(pkcs11.CKA_SUBJECT, randomBytes()))
 		require.NoError(t, ctx.ImportCertificateWithAttributes(template, chain[1].cert))
 
 		id := importCert(t, ctx, chain[0].cert)
-		defer deleteCerts(t, ctx, [][]byte{id, template[CkaId].Value})
+		defer deleteCerts(t, ctx, [][]byte{id, template[pkcs11.CKA_ID].Value})
 
 		got, err := ctx.FindCertificateChain(id, nil, nil)
 		require.NoError(t, err)
@@ -500,14 +501,19 @@ func TestFindAllPairedCertificatesReturnsChain(t *testing.T) {
 	withContext(t, func(ctx *Context) {
 		chain := generateCertChain(t, "paired-leaf", "paired-intermediate", "paired-root")
 
-		// The leaf is paired with the private key by CKA_ID. The issuers above it share no id
-		// with the key and can only be reached by the chain walk.
+		// The leaf is found by CKA_ID and paired with the private key because it certifies the
+		// key pair's public key. The issuers above it share no id with the key and can only be
+		// reached by the chain walk.
 		id := randomBytes()
 		key, err := ctx.GenerateECDSAKeyPair(id, elliptic.P256())
 		require.NoError(t, err)
 		defer func() {
 			assert.NoError(t, key.Delete())
 		}()
+
+		leafTemplate := certTemplate(t, "paired-leaf", false)
+		leafTemplate.AuthorityKeyId = chain[1].cert.SubjectKeyId
+		chain[0].cert = createCert(t, leafTemplate, chain[1].cert, key.Public().(*ecdsa.PublicKey), chain[1].key)
 
 		require.NoError(t, ctx.ImportCertificate(id, chain[0].cert))
 		issuerIDs := importChain(t, ctx, chain[1:])
@@ -531,6 +537,51 @@ func TestFindAllPairedCertificatesReturnsChain(t *testing.T) {
 		for i, link := range chain {
 			assert.Equal(t, link.cert.Raw, got.Certificate[i], "chain position %d", i)
 		}
+	})
+}
+
+// TestDeleteKeyPairWithCertificatePublicHalf checks Delete on a key pair found
+// with no public key object, whose public half therefore came from a
+// certificate: the private key goes, the certificate stays, and no error is
+// reported for the public object that does not exist.
+func TestDeleteKeyPairWithCertificatePublicHalf(t *testing.T) {
+	skipTest(t, skipTestCert)
+
+	withContext(t, func(ctx *Context) {
+		id := randomBytes()
+		key, err := ctx.GenerateECDSAKeyPair(id, elliptic.P256())
+		require.NoError(t, err)
+
+		template := &x509.Certificate{
+			SerialNumber: big.NewInt(1),
+			Subject:      pkix.Name{CommonName: "certificate-backed key pair"},
+			NotBefore:    time.Now().Add(-time.Hour),
+			NotAfter:     time.Now().Add(time.Hour),
+		}
+		der, err := x509.CreateCertificate(rand.Reader, template, template, key.Public(), key)
+		require.NoError(t, err)
+		cert, err := x509.ParseCertificate(der)
+		require.NoError(t, err)
+		require.NoError(t, ctx.ImportCertificate(id, cert))
+		defer func() { assert.NoError(t, ctx.DeleteCertificate(id, nil, nil)) }()
+
+		// Remove the public key object, leaving the certificate as the only public half.
+		pubHandle := key.(*pkcs11PrivateKeyECDSA).pubKeyHandle
+		require.NoError(t, ctx.withSession(func(session *pkcs11Session) error {
+			return session.ctx.DestroyObject(session.handle, pubHandle)
+		}))
+
+		found, err := ctx.FindKeyPair(id, nil)
+		require.NoError(t, err)
+		require.True(t, found.Public().(*ecdsa.PublicKey).Equal(key.Public()), "public half comes from the certificate")
+
+		require.NoError(t, found.Delete())
+
+		_, err = ctx.FindPrivateKey(id, nil)
+		require.Error(t, err, "the private key is gone")
+		remaining, err := ctx.FindCertificate(id, nil, nil)
+		require.NoError(t, err)
+		require.NotNil(t, remaining, "the certificate is left in place")
 	})
 }
 

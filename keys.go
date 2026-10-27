@@ -10,6 +10,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"slices"
 
 	pkcs11 "github.com/eclipse-keypont/pkcs11-go/cryptoki"
 )
@@ -85,20 +86,6 @@ func findKeys(session *pkcs11Session, id []byte, label []byte, keyclass *uint, k
 	return handles, nil
 }
 
-// Find a key object.  For asymmetric keys this only finds one half so
-// callers will call it twice. Returns nil if the key does not exist on the token.
-func findKey(session *pkcs11Session, id []byte, label []byte, keyclass *uint, keytype *uint) (obj *pkcs11.ObjectHandle, err error) {
-	handles, err := findKeys(session, id, label, keyclass, keytype)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(handles) == 0 {
-		return nil, nil
-	}
-	return &handles[0], nil
-}
-
 func (c *Context) getKeyPair(session *pkcs11Session, privHandle *pkcs11.ObjectHandle) (pubHandle *pkcs11.ObjectHandle, keyType uint, priv *pkcs11PrivateKey, certificate *x509.Certificate, pub crypto.PublicKey, err error) {
 	attributes := []*pkcs11.Attribute{
 		pkcs11.NewAttribute(pkcs11.CKA_ID, nil),
@@ -109,14 +96,6 @@ func (c *Context) getKeyPair(session *pkcs11Session, privHandle *pkcs11.ObjectHa
 		return nil, 0, nil, nil, nil, err
 	}
 
-	// Attributes must contain the key id or the key label to find it inside the keystore.
-	//if id == nil || len(id) == 0 {
-	//	return nil, 0, nil, nil, nil, errNoCkaID
-	//}
-	// Attributes must contain the key id or the key label to find it inside the keystore.
-	//if id == nil || len(id) == 0 {
-	//	return nil, 0, nil, nil, nil, errNoCkaID
-	//}
 	id := attributes[0].Value
 	label := attributes[1].Value
 	keyType = pkcs11.BytesToULong(attributes[2].Value)
@@ -124,49 +103,67 @@ func (c *Context) getKeyPair(session *pkcs11Session, privHandle *pkcs11.ObjectHa
 		return nil, 0, nil, nil, nil, fmt.Errorf("key id or label cannot both be empty")
 	}
 
-	// Find the public half which has a matching CKA_ID
-	pubHandle, err = findKey(session, id, label, uintPtr(pkcs11.CKO_PUBLIC_KEY), &keyType)
+	// Public key objects with the private key's CKA_ID and CKA_LABEL, then those that share only
+	// its CKA_ID. The search by CKA_ID alone needs an id: findKeys leaves an empty id and label
+	// out of the template, so for a label-only private key it would match every public key of
+	// the right type on the token.
+	primary, err := findPublicKeyHandles(session, id, label, keyType)
 	if err != nil {
-		var p11Err pkcs11.Error
-		ok := errors.As(err, &p11Err)
-
-		if len(label) == 0 && ok && p11Err == pkcs11.CKR_TEMPLATE_INCONSISTENT {
-			// This probably means we are using a token that doesn't like us passing empty attributes in a template.
-			// For instance CloudHSM cannot search for a key with CKA_LABEL="". So if the private key doesn't have a
-			// label, we need to pass nil into findKeys, then match against the first key without a label.
-
-			pubHandles, err := findKeys(session, id, nil, uintPtr(pkcs11.CKO_PUBLIC_KEY), &keyType)
-			if err != nil {
-				return nil, 0, nil, nil, nil, err
-			}
-
-			for _, handle := range pubHandles {
-				template := []*pkcs11.Attribute{pkcs11.NewAttribute(pkcs11.CKA_LABEL, nil)}
-				template, err = session.ctx.GetAttributeValue(session.handle, handle, template)
-				if err != nil {
-					return nil, 0, nil, nil, nil, err
-				}
-				if len(template[0].Value) == 0 {
-					pubHandle = &handle
-					break
-				}
-			}
-		} else {
+		return nil, 0, nil, nil, nil, err
+	}
+	var secondary []pkcs11.ObjectHandle
+	if len(id) > 0 {
+		byID, err := findKeys(session, id, nil, uintPtr(pkcs11.CKO_PUBLIC_KEY), &keyType)
+		if err != nil {
 			return nil, 0, nil, nil, nil, err
+		}
+		for _, h := range byID {
+			if !slices.Contains(primary, h) {
+				secondary = append(secondary, h)
+			}
 		}
 	}
 
-	if pubHandle == nil && len(id) > 0 {
-		// Try harder to find a matching public key, based on CKA_ID alone.
-		//
-		// Only when there is an id to match on: findKeys leaves an empty id and
-		// label out of the template, so for a label-only private key this search
-		// would return the first public key of the right type on the token —
-		// some unrelated key pair's public half — and the Signer built from it
-		// would advertise an identity it cannot sign for.
-		pubHandle, err = findKey(session, id, nil, uintPtr(pkcs11.CKO_PUBLIC_KEY), &keyType)
+	// Each candidate is checked against the private key before it is trusted; see pairing.go.
+	verifier := newPairVerifier(session, *privHandle, keyType)
+	candidates := func(handles []pkcs11.ObjectHandle) []*pubCandidate {
+		var out []*pubCandidate
+		for i := range handles {
+			key, err := exportPublicKey(session, handles[i], keyType)
+			if err != nil {
+				// Malformed, or not a key this package represents: not this key's public half.
+				continue
+			}
+			out = append(out, &pubCandidate{handle: &handles[i], key: key, match: verifier.check(key)})
+		}
+		return out
+	}
+
+	// CKA_ID is also what links a certificate to its key. Without an id there is nothing to
+	// look certificates up by.
+	var certs []*pubCandidate
+	if len(id) > 0 {
+		found, err := findCertificatesByID(session, id)
 		if err != nil {
 			return nil, 0, nil, nil, nil, err
+		}
+		for _, cert := range found {
+			certs = append(certs, &pubCandidate{cert: cert, key: cert.PublicKey, match: verifier.check(cert.PublicKey)})
+		}
+	}
+
+	chosen, err := selectPublicHalf(candidates(primary), candidates(secondary), certs)
+	if err != nil {
+		return nil, 0, nil, nil, nil, err
+	}
+	pubHandle, pub = chosen.handle, chosen.key
+
+	// The certificate returned with the key pair must certify this public key, not merely carry
+	// the same CKA_ID.
+	for _, cert := range certs {
+		if publicKeysEqual(pub, cert.key) {
+			certificate = cert.cert
+			break
 		}
 	}
 
@@ -176,23 +173,40 @@ func (c *Context) getKeyPair(session *pkcs11Session, privHandle *pkcs11.ObjectHa
 			context: c,
 		},
 	}
+	return pubHandle, keyType, priv, certificate, pub, nil
+}
 
-	// The same holds for the certificate fallback: CKA_ID is what links a
-	// certificate to its key, and an empty one would match every certificate
-	// on the token that has none.
-	if len(id) > 0 {
-		certificate, _ = findCertificate(session, id, nil, nil)
+// findPublicKeyHandles finds the public key objects of the given type with this CKA_ID and
+// CKA_LABEL.
+func findPublicKeyHandles(session *pkcs11Session, id, label []byte, keyType uint) ([]pkcs11.ObjectHandle, error) {
+	handles, err := findKeys(session, id, label, uintPtr(pkcs11.CKO_PUBLIC_KEY), &keyType)
+	if err == nil {
+		return handles, nil
 	}
-	if certificate != nil && pubHandle == nil {
-		pub = certificate.PublicKey
-	}
-
-	if pub == nil && pubHandle == nil {
-		// We can't return a Signer if we don't have private and public key. Treat it as an error.
-		return nil, 0, nil, nil, nil, errNoPublicHalf
+	var p11Err pkcs11.Error
+	if len(label) > 0 || !errors.As(err, &p11Err) || p11Err != pkcs11.CKR_TEMPLATE_INCONSISTENT {
+		return nil, err
 	}
 
-	return
+	// This probably means we are using a token that doesn't like us passing empty attributes in
+	// a template. For instance CloudHSM cannot search for a key with CKA_LABEL="". So if the
+	// private key doesn't have a label, search without one and keep the keys that have no label.
+	byID, err := findKeys(session, id, nil, uintPtr(pkcs11.CKO_PUBLIC_KEY), &keyType)
+	if err != nil {
+		return nil, err
+	}
+	handles = nil
+	for _, handle := range byID {
+		template, err := session.ctx.GetAttributeValue(session.handle, handle,
+			[]*pkcs11.Attribute{pkcs11.NewAttribute(pkcs11.CKA_LABEL, nil)})
+		if err != nil {
+			return nil, err
+		}
+		if len(template[0].Value) == 0 {
+			handles = append(handles, handle)
+		}
+	}
+	return handles, nil
 }
 
 // Takes a handles to the private half of a keypair, locates the public half with the matching CKA_ID and CKA_LABEL
@@ -265,8 +279,9 @@ func (c *Context) makeKeyPair(session *pkcs11Session, privHandle *pkcs11.ObjectH
 // FindKeyPair retrieves a previously created asymmetric key pair, or nil if it cannot be found.
 //
 // At least one of id and label must be specified.
-// Only private keys that have a non-empty CKA_ID will be found, as this is required to locate the matching public key.
-// If the private key is found, but the public key with a corresponding CKA_ID is not, the key is not returned
+// The public half is a public key object, or failing that a certificate, carrying the private key's CKA_ID
+// (and CKA_LABEL). Any session on the token can create such objects, so each one is checked against the private
+// key and one holding a different key is never used. If no public half is found, the key is not returned
 // because we cannot implement crypto.Signer without the public key.
 //
 // The returned Signer can only sign. To decrypt with an existing key pair, use FindRSAKeyPair,
@@ -291,8 +306,9 @@ func (c *Context) FindKeyPair(id []byte, label []byte) (Signer, error) {
 // FindKeyPairs retrieves all matching asymmetric key pairs, or a nil slice if none can be found.
 //
 // At least one of id and label must be specified.
-// Only private keys that have a non-empty CKA_ID will be found, as this is required to locate the matching public key.
-// If the private key is found, but the public key with a corresponding CKA_ID is not, the key is not returned
+// The public half is a public key object, or failing that a certificate, carrying the private key's CKA_ID
+// (and CKA_LABEL). Any session on the token can create such objects, so each one is checked against the private
+// key and one holding a different key is never used. If no public half is found, the key is not returned
 // because we cannot implement crypto.Signer without the public key.
 //
 // The returned Signers can only sign. To decrypt with existing key pairs, use FindRSAKeyPairs,
@@ -309,13 +325,13 @@ func (c *Context) FindKeyPairs(id []byte, label []byte) (signer []Signer, err er
 	attributes := NewAttributeSet()
 
 	if len(id) > 0 {
-		err = attributes.Set(CkaId, id)
+		err = attributes.Set(pkcs11.CKA_ID, id)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if len(label) > 0 {
-		err = attributes.Set(CkaLabel, label)
+		err = attributes.Set(pkcs11.CKA_LABEL, label)
 		if err != nil {
 			return nil, err
 		}
@@ -328,8 +344,9 @@ func (c *Context) FindKeyPairs(id []byte, label []byte) (signer []Signer, err er
 // The given attributes are matched against the private half only. Then the public half with a matching CKA_ID
 // and CKA_LABEL values is found.
 //
-// Only private keys that have a non-empty CKA_ID will be found, as this is required to locate the matching public key.
-// If the private key is found, but the public key with a corresponding CKA_ID is not, the key is not returned
+// The public half is a public key object, or failing that a certificate, carrying the private key's CKA_ID
+// (and CKA_LABEL). Any session on the token can create such objects, so each one is checked against the private
+// key and one holding a different key is never used. If no public half is found, the key is not returned
 // because we cannot implement crypto.Signer without the public key.
 func (c *Context) FindKeyPairWithAttributes(attributes AttributeSet) (Signer, error) {
 	if c.closed.Get() {
@@ -352,8 +369,9 @@ func (c *Context) FindKeyPairWithAttributes(attributes AttributeSet) (Signer, er
 // The given attributes are matched against the private half only. Then the public half with a matching CKA_ID
 // and CKA_LABEL values is found.
 //
-// Only private keys that have a non-empty CKA_ID will be found, as this is required to locate the matching public key.
-// If the private key is found, but the public key with a corresponding CKA_ID is not, the key is not returned
+// The public half is a public key object, or failing that a certificate, carrying the private key's CKA_ID
+// (and CKA_LABEL). Any session on the token can create such objects, so each one is checked against the private
+// key and one holding a different key is never used. If no public half is found, the key is not returned
 // because we cannot implement crypto.Signer without the public key.
 // Keys whose type this package cannot represent as a Signer (ML-KEM key pairs, for example) are skipped.
 //
@@ -366,14 +384,14 @@ func (c *Context) FindKeyPairsWithAttributes(attributes AttributeSet) (signer []
 
 	var keys []Signer
 
-	if _, ok := attributes[CkaClass]; ok {
+	if _, ok := attributes[pkcs11.CKA_CLASS]; ok {
 		return nil, errors.New("keypair attribute set must not contain CkaClass")
 	}
 
 	err = c.withSession(func(session *pkcs11Session) error {
 		// Add the private key class to the template to find the private half
 		privAttributes := attributes.Copy()
-		err = privAttributes.Set(CkaClass, pkcs11.CKO_PRIVATE_KEY)
+		err = privAttributes.Set(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY)
 		if err != nil {
 			return err
 		}
@@ -467,13 +485,13 @@ func (c *Context) FindKeys(id []byte, label []byte) (key []*SecretKey, err error
 	attributes := NewAttributeSet()
 
 	if len(id) > 0 {
-		err = attributes.Set(CkaId, id)
+		err = attributes.Set(pkcs11.CKA_ID, id)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if len(label) > 0 {
-		err = attributes.Set(CkaLabel, label)
+		err = attributes.Set(pkcs11.CKA_LABEL, label)
 		if err != nil {
 			return nil, err
 		}
@@ -509,14 +527,14 @@ func (c *Context) FindKeysWithAttributes(attributes AttributeSet) ([]*SecretKey,
 
 	var keys []*SecretKey
 
-	if _, ok := attributes[CkaClass]; ok {
+	if _, ok := attributes[pkcs11.CKA_CLASS]; ok {
 		return nil, errors.New("key attribute set must not contain CkaClass")
 	}
 
 	err := c.withSession(func(session *pkcs11Session) error {
 		// Add the private key class to the template to find the private half
 		privAttributes := attributes.Copy()
-		err := privAttributes.Set(CkaClass, pkcs11.CKO_SECRET_KEY)
+		err := privAttributes.Set(pkcs11.CKA_CLASS, pkcs11.CKO_SECRET_KEY)
 		if err != nil {
 			return err
 		}
@@ -639,13 +657,13 @@ func (c *Context) FindPrivateKeys(id []byte, label []byte) (signer []PrivateKey,
 	attributes := NewAttributeSet()
 
 	if len(id) > 0 {
-		err = attributes.Set(CkaId, id)
+		err = attributes.Set(pkcs11.CKA_ID, id)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if len(label) > 0 {
-		err = attributes.Set(CkaLabel, label)
+		err = attributes.Set(pkcs11.CKA_LABEL, label)
 		if err != nil {
 			return nil, err
 		}
@@ -683,14 +701,14 @@ func (c *Context) FindPrivateKeysWithAttributes(attributes AttributeSet) (signer
 
 	var keys []PrivateKey
 
-	if _, ok := attributes[CkaClass]; ok {
+	if _, ok := attributes[pkcs11.CKA_CLASS]; ok {
 		return nil, errors.New("keypair attribute set must not contain CkaClass")
 	}
 
 	err = c.withSession(func(session *pkcs11Session) error {
 		// Add the private key class to the template to find the private half
 		privAttributes := attributes.Copy()
-		err = privAttributes.Set(CkaClass, pkcs11.CKO_PRIVATE_KEY)
+		err = privAttributes.Set(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY)
 		if err != nil {
 			return err
 		}

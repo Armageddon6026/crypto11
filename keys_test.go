@@ -29,7 +29,7 @@ func foundIDs[T any](t *testing.T, ctx *Context, keys []T) map[string]bool {
 
 	ids := make(map[string]bool, len(keys))
 	for _, key := range keys {
-		attr, err := ctx.GetAttribute(key, CkaId)
+		attr, err := ctx.GetAttribute(key, pkcs11.CKA_ID)
 		if err != nil {
 			continue
 		}
@@ -108,18 +108,18 @@ func TestFindingKeysWithAttributes(t *testing.T) {
 		defer func(k *SecretKey) { _ = k.Delete() }(key)
 
 		attrs := NewAttributeSet()
-		_ = attrs.Set(CkaLabel, label)
+		_ = attrs.Set(pkcs11.CKA_LABEL, label)
 		keys, err := ctx.FindKeysWithAttributes(attrs)
 		require.NoError(t, err)
 		require.Len(t, keys, 1)
 
-		_ = attrs.Set(CkaLabel, label2)
+		_ = attrs.Set(pkcs11.CKA_LABEL, label2)
 		keys, err = ctx.FindKeysWithAttributes(attrs)
 		require.NoError(t, err)
 		require.Len(t, keys, 2)
 
 		attrs = NewAttributeSet()
-		err = attrs.Set(CkaValueLen, 16)
+		err = attrs.Set(pkcs11.CKA_VALUE_LEN, 16)
 		require.NoError(t, err)
 
 		keys, err = ctx.FindKeysWithAttributes(attrs)
@@ -128,7 +128,7 @@ func TestFindingKeysWithAttributes(t *testing.T) {
 		requireKeysAbsent(t, ctx, keys, [][]byte{id256}, "FindKeysWithAttributes(CkaValueLen=16)")
 
 		attrs = NewAttributeSet()
-		err = attrs.Set(CkaValueLen, 32)
+		err = attrs.Set(pkcs11.CKA_VALUE_LEN, 32)
 		require.NoError(t, err)
 
 		keys, err = ctx.FindKeysWithAttributes(attrs)
@@ -165,18 +165,18 @@ func TestFindingKeyPairsWithAttributes(t *testing.T) {
 		defer func(k Signer) { _ = k.Delete() }(key)
 
 		attrs := NewAttributeSet()
-		_ = attrs.Set(CkaLabel, label)
+		_ = attrs.Set(pkcs11.CKA_LABEL, label)
 		keys, err := ctx.FindKeyPairsWithAttributes(attrs)
 		require.NoError(t, err)
 		require.Len(t, keys, 1)
 
-		_ = attrs.Set(CkaLabel, label2)
+		_ = attrs.Set(pkcs11.CKA_LABEL, label2)
 		keys, err = ctx.FindKeyPairsWithAttributes(attrs)
 		require.NoError(t, err)
 		require.Len(t, keys, 2)
 
 		attrs = NewAttributeSet()
-		_ = attrs.Set(CkaKeyType, pkcs11.CKK_RSA)
+		_ = attrs.Set(pkcs11.CKA_KEY_TYPE, pkcs11.CKK_RSA)
 		keys, err = ctx.FindKeyPairsWithAttributes(attrs)
 		require.NoError(t, err)
 		requireKeysFound(t, ctx, keys, [][]byte{id1, id2, id3}, "FindKeyPairsWithAttributes(CkaKeyType=CKK_RSA)")
@@ -210,18 +210,18 @@ func TestFindingPrivateKeysWithAttributes(t *testing.T) {
 		defer func(k Signer) { _ = k.Delete() }(key)
 
 		attrs := NewAttributeSet()
-		_ = attrs.Set(CkaLabel, label)
+		_ = attrs.Set(pkcs11.CKA_LABEL, label)
 		keys, err := ctx.FindPrivateKeysWithAttributes(attrs)
 		require.NoError(t, err)
 		require.Len(t, keys, 1)
 
-		_ = attrs.Set(CkaLabel, label2)
+		_ = attrs.Set(pkcs11.CKA_LABEL, label2)
 		keys, err = ctx.FindPrivateKeysWithAttributes(attrs)
 		require.NoError(t, err)
 		require.Len(t, keys, 2)
 
 		attrs = NewAttributeSet()
-		_ = attrs.Set(CkaKeyType, pkcs11.CKK_RSA)
+		_ = attrs.Set(pkcs11.CKA_KEY_TYPE, pkcs11.CKK_RSA)
 		keys, err = ctx.FindPrivateKeysWithAttributes(attrs)
 		require.NoError(t, err)
 		requireKeysFound(t, ctx, keys, [][]byte{id1, id2, id3}, "FindPrivateKeysWithAttributes(CkaKeyType=CKK_RSA)")
@@ -236,7 +236,7 @@ func TestFindingPrivateKeyNotFound(t *testing.T) {
 		assert.Error(t, err)
 
 		attrs := NewAttributeSet()
-		_ = attrs.Set(CkaLabel, randomBytes())
+		_ = attrs.Set(pkcs11.CKA_LABEL, randomBytes())
 		_, err = ctx.FindPrivateKeyWithAttributes(attrs)
 		assert.Error(t, err)
 
@@ -307,12 +307,12 @@ func TestGettingPrivateKeyAttributes(t *testing.T) {
 		require.NoError(t, err)
 		defer func(k Signer) { _ = k.Delete() }(key)
 
-		attrs, err := ctx.GetAttributes(key, []AttributeType{CkaModulus})
+		attrs, err := ctx.GetAttributes(key, []AttributeType{pkcs11.CKA_MODULUS})
 		require.NoError(t, err)
 		require.NotNil(t, attrs)
 		require.Len(t, attrs, 1)
 
-		require.Len(t, attrs[CkaModulus].Value, 256)
+		require.Len(t, attrs[pkcs11.CKA_MODULUS].Value, 256)
 	})
 }
 
@@ -324,12 +324,12 @@ func TestGettingPublicKeyAttributes(t *testing.T) {
 		require.NoError(t, err)
 		defer func(k Signer) { _ = k.Delete() }(key)
 
-		attrs, err := ctx.GetPubAttributes(key, []AttributeType{CkaModulusBits})
+		attrs, err := ctx.GetPubAttributes(key, []AttributeType{pkcs11.CKA_MODULUS_BITS})
 		require.NoError(t, err)
 		require.NotNil(t, attrs)
 		require.Len(t, attrs, 1)
 
-		require.Equal(t, uint(rsaSize), pkcs11.BytesToULong(attrs[CkaModulusBits].Value))
+		require.Equal(t, uint(rsaSize), pkcs11.BytesToULong(attrs[pkcs11.CKA_MODULUS_BITS].Value))
 	})
 }
 
@@ -341,12 +341,12 @@ func TestGettingSecretKeyAttributes(t *testing.T) {
 		require.NoError(t, err)
 		defer func(k *SecretKey) { _ = k.Delete() }(key)
 
-		attrs, err := ctx.GetAttributes(key, []AttributeType{CkaValueLen})
+		attrs, err := ctx.GetAttributes(key, []AttributeType{pkcs11.CKA_VALUE_LEN})
 		require.NoError(t, err)
 		require.NotNil(t, attrs)
 		require.Len(t, attrs, 1)
 
-		require.Equal(t, uint(16), pkcs11.BytesToULong(attrs[CkaValueLen].Value))
+		require.Equal(t, uint(16), pkcs11.BytesToULong(attrs[pkcs11.CKA_VALUE_LEN].Value))
 	})
 }
 
@@ -355,7 +355,7 @@ func TestGettingUnsupportedKeyTypeAttributes(t *testing.T) {
 		key, err := rsa.GenerateKey(rand.Reader, rsaSize)
 		require.NoError(t, err)
 
-		_, err = ctx.GetAttributes(key, []AttributeType{CkaModulusBits})
+		_, err = ctx.GetAttributes(key, []AttributeType{pkcs11.CKA_MODULUS_BITS})
 		require.Error(t, err)
 	})
 }
@@ -373,23 +373,23 @@ func TestAttributeAccessorsRejectForeignContext(t *testing.T) {
 	require.NoError(t, err)
 	defer func(k Signer) { _ = k.Delete() }(key)
 
-	_, err = ctx2.GetAttributes(key, []AttributeType{CkaModulus})
+	_, err = ctx2.GetAttributes(key, []AttributeType{pkcs11.CKA_MODULUS})
 	require.ErrorIs(t, err, errForeignKey)
-	_, err = ctx2.GetAttribute(key, CkaModulus)
+	_, err = ctx2.GetAttribute(key, pkcs11.CKA_MODULUS)
 	require.ErrorIs(t, err, errForeignKey)
-	_, err = ctx2.GetPubAttributes(key, []AttributeType{CkaModulusBits})
+	_, err = ctx2.GetPubAttributes(key, []AttributeType{pkcs11.CKA_MODULUS_BITS})
 	require.ErrorIs(t, err, errForeignKey)
-	_, err = ctx2.GetPubAttribute(key, CkaModulusBits)
+	_, err = ctx2.GetPubAttribute(key, pkcs11.CKA_MODULUS_BITS)
 	require.ErrorIs(t, err, errForeignKey)
 
 	secret, err := ctx1.GenerateSecretKey(randomBytes(), 256, CipherAES)
 	require.NoError(t, err)
 	defer func(k *SecretKey) { _ = k.Delete() }(secret)
-	_, err = ctx2.GetAttributes(secret, []AttributeType{CkaValueLen})
+	_, err = ctx2.GetAttributes(secret, []AttributeType{pkcs11.CKA_VALUE_LEN})
 	require.ErrorIs(t, err, errForeignKey)
 
 	// The owning Context is unaffected.
-	_, err = ctx1.GetAttributes(key, []AttributeType{CkaModulus})
+	_, err = ctx1.GetAttributes(key, []AttributeType{pkcs11.CKA_MODULUS})
 	require.NoError(t, err)
 }
 
@@ -423,10 +423,10 @@ func TestLabelOnlyPrivateKeyIsNotPairedWithStranger(t *testing.T) {
 		// different label and an id — nothing links the two by label or id.
 		orphanLabel := []byte("orphan-" + string(randomBytes()))
 		public := NewAttributeSet()
-		require.NoError(t, public.Set(CkaId, randomBytes()))
-		require.NoError(t, public.Set(CkaLabel, []byte("pub-of-"+string(orphanLabel))))
+		require.NoError(t, public.Set(pkcs11.CKA_ID, randomBytes()))
+		require.NoError(t, public.Set(pkcs11.CKA_LABEL, []byte("pub-of-"+string(orphanLabel))))
 		private := NewAttributeSet()
-		require.NoError(t, private.Set(CkaLabel, orphanLabel))
+		require.NoError(t, private.Set(pkcs11.CKA_LABEL, orphanLabel))
 		orphan, err := ctx.GenerateRSAKeyPairWithAttributes(public, private, rsaSize)
 		require.NoError(t, err)
 		defer destroyPrivateKeysWithLabel(t, ctx, orphanLabel)
@@ -453,9 +453,9 @@ func TestLabelOnlyKeyPairWithMatchingLabelsStillFound(t *testing.T) {
 	withContext(t, func(ctx *Context) {
 		label := []byte("pair-" + string(randomBytes()))
 		public := NewAttributeSet()
-		require.NoError(t, public.Set(CkaLabel, label))
+		require.NoError(t, public.Set(pkcs11.CKA_LABEL, label))
 		private := NewAttributeSet()
-		require.NoError(t, private.Set(CkaLabel, label))
+		require.NoError(t, private.Set(pkcs11.CKA_LABEL, label))
 		key, err := ctx.GenerateRSAKeyPairWithAttributes(public, private, rsaSize)
 		require.NoError(t, err)
 		defer func(k Signer) { _ = k.Delete() }(key)

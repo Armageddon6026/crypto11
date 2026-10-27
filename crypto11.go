@@ -68,9 +68,12 @@
 // The reason for this is that it is not possible for crypto11 to guarantee the constant-time behavior in the specification.
 // See https://github.com/eclipse-keypont/crypto11/issues/5 for further discussion.
 //
-// Symmetric crypto support via cipher.Block is very slow.
-// You can use the BlockModeCloser API
-// but you must call the Close() interface (not found in cipher.BlockMode).
+// SecretKey is not a cipher.Block: each block would cost a round trip to the
+// token. CBC runs on the token through cipher.BlockMode instead
+// (NewCBCEncrypter, NewCBCDecrypter). Prefer the BlockModeCloser variants
+// (NewCBCEncrypterCloser, NewCBCDecrypterCloser) and call Close, which
+// cipher.BlockMode does not have: the plain variants hold a session until the
+// garbage collector finalizes them.
 // See https://github.com/eclipse-keypont/crypto11/issues/6 for further discussion.
 package crypto11
 
@@ -155,6 +158,14 @@ func (k *pkcs11PrivateKey) Delete() error {
 		return err
 	}
 
+	if k.pubKeyHandle == pkcs11.CK_INVALID_HANDLE {
+		// The key pair was found with no public key object on the token, its
+		// public half taken from a certificate, so there is nothing more to
+		// destroy. The certificate is a separate object and is left in place;
+		// DeleteCertificate removes it.
+		return nil
+	}
+
 	err = k.context.withSession(func(session *pkcs11Session) error {
 		if err := session.ctx.DestroyObject(session.handle, k.pubKeyHandle); err != nil {
 			return fmt.Errorf("failed to destroy public key: %w", err)
@@ -204,7 +215,10 @@ type Context struct {
 type Signer interface {
 	crypto.Signer
 
-	// Delete deletes the key pair from the token.
+	// Delete deletes the key pair from the token. A key pair whose public half
+	// came from a certificate, because the token holds no public key object
+	// for it, loses only its private key; the certificate is left for
+	// DeleteCertificate.
 	//
 	// Delete must not run concurrently with another operation on the same
 	// key. Once it has returned, any further use of the key fails with an
@@ -329,14 +343,34 @@ type Config struct {
 	// LoginNotSupported should be set to true for tokens that do not support logging in.
 	LoginNotSupported bool
 
+	// ReadOnlySessions, when true, opens every session without CKF_RW_SESSION,
+	// so crypto11 only ever holds read-only sessions on the token.
+	//
+	// This is for tokens that refuse a read/write session outright — some
+	// devices answer C_OpenSession with CKR_TOKEN_WRITE_PROTECTED — and for
+	// deployments that only ever sign, verify, encrypt or decrypt with keys
+	// provisioned elsewhere and would rather not hold write access at all.
+	//
+	// A read-only session cannot create or destroy objects, so key generation,
+	// key import and object deletion fail with CKR_SESSION_READ_ONLY while this
+	// is set. Operations on keys that already exist on the token are unaffected.
+	ReadOnlySessions bool
+
 	// UseGCMIVFromHSM should be set to true for tokens such as CloudHSM, which ignore the supplied IV for
-	// GCM mode and generate their own. In this case, the token will write the IV used into the CK_GCM_PARAMS.
-	// If UseGCMIVFromHSM is true, we will copy this IV and overwrite the 'nonce' slice passed to Seal and Open. It
-	// is therefore necessary that the nonce is the correct length (12 bytes for CloudHSM).
+	// GCM mode and generate their own. How Seal returns that IV depends on GCMIVFromHSMControl:
+	//
+	//   - with SupplyIvForHSMGCMEncrypt, the token writes the IV into the IV buffer of CK_GCM_PARAMS, and Seal
+	//     copies it into the nonce slice, which must be GCMIVLength bytes long (12 for CloudHSM);
+	//   - without it, no IV buffer is passed, and the token appends the IV to the ciphertext and tag. The nonce
+	//     passed to Seal is not used and may be empty.
+	//
+	// Seal panics if the token turns out not to have generated an IV, since every message would then be
+	// encrypted under the same one.
 	UseGCMIVFromHSM bool
 
-	// GCMIVLength is the length of IVs to use in GCM mode. Refer to NIST SP800-38 for guidance on the length of
-	// RBG-based IVs in GCM mode. When the UseGCMIVFromHSM parameter is true
+	// GCMIVLength is the length of IVs to use in GCM mode, and the NonceSize of the AEAD NewGCM returns. It
+	// must be at least 12 bytes. Refer to NIST SP800-38D for guidance on the length of RBG-based IVs in GCM
+	// mode. When UseGCMIVFromHSM is true, it is the length of the IV the token generates.
 	GCMIVLength int
 
 	GCMIVFromHSMControl GCMIVFromHSMConfig
@@ -345,10 +379,12 @@ type Config struct {
 // GCMIVFromHSMConfig controls IV buffer management for tokens that generate their own GCM IVs.
 type GCMIVFromHSMConfig struct {
 
-	// SupplyIvForHSMGCM_encrypt controls the supply of a non-nil IV for GCM use during C_EncryptInit
+	// SupplyIvForHSMGCMEncrypt passes an IV buffer of GCMIVLength bytes to C_EncryptInit, for tokens that
+	// write the IV they generate into it. Without it the token is expected to append the IV to the ciphertext.
 	SupplyIvForHSMGCMEncrypt bool
 
-	// SupplyIvForHSMGCM_decrypt controls the supply of a non-nil IV for GCM use during C_DecryptInit
+	// SupplyIvForHSMGCMDecrypt passes the nonce to C_DecryptInit as the IV. Without it no IV is passed, for
+	// tokens that read it from the ciphertext.
 	SupplyIvForHSMGCMDecrypt bool
 }
 
@@ -544,7 +580,7 @@ func Configure(config *Config) (*Context, error) {
 
 	// Create a long-term session and log it in (if supported). This session won't be used by callers, instead it is
 	// used to keep a connection alive to the token to ensure object handles and the log in status remain accessible.
-	instance.persistentSession, err = instance.ctx.OpenSession(instance.slot, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKF_RW_SESSION)
+	instance.persistentSession, err = instance.ctx.OpenSession(instance.slot, instance.sessionFlags())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create long term session: %w", err)
 	}
@@ -676,15 +712,21 @@ func loadConfigFromFile(configLocation string) (*Config, error) {
 		return nil, fmt.Errorf("could not decode config file: %w", err)
 	}
 
-	// A file that carries the PIN is a credential and has to be protected
-	// like one. The check is on the open file, not the path, so it cannot be
-	// raced. Windows file modes do not express this and are not checked.
-	if config.Pin != "" && runtime.GOOS != "windows" {
+	// The file names the library Configure loads into this process, so anyone
+	// who can write to it can run code here, PIN or not. A file that carries
+	// the PIN is also a credential and has to be protected like one. The checks
+	// are on the open file, not the path, so they cannot be raced. Windows file
+	// modes do not express this and are not checked.
+	if runtime.GOOS != "windows" {
 		info, err := file.Stat()
 		if err != nil {
 			return nil, fmt.Errorf("could not stat config file: %w", err)
 		}
-		if mode := info.Mode().Perm(); mode&0o077 != 0 {
+		mode := info.Mode().Perm()
+		if mode&0o022 != 0 {
+			return nil, fmt.Errorf("config file %s is writable by other users (mode %04o); restrict writing to its owner (chmod go-w)", configLocation, mode)
+		}
+		if config.Pin != "" && mode&0o077 != 0 {
 			return nil, fmt.Errorf("config file %s holds a PIN but is readable by other users (mode %04o); restrict it to its owner (chmod 600) or move the PIN out of the file", configLocation, mode)
 		}
 	}

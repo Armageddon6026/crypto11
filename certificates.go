@@ -395,7 +395,9 @@ func describeCertificateObject(session *pkcs11Session, handle pkcs11.ObjectHandl
 }
 
 // FindAllPairedCertificates finds all certificates on the token that have a matching private key,
-// as tls.Certificate values ready to hand to crypto/tls.
+// as tls.Certificate values ready to hand to crypto/tls. A certificate is paired with a private key
+// when it carries the key's CKA_ID and certifies the key's public half; sharing the CKA_ID is not
+// enough, since any session on the token can import a certificate.
 //
 // Each returned Certificate holds the leaf followed by the issuers above it that the token also
 // holds, in the order crypto/tls sends them, built by the same walk as FindCertificateChain — a
@@ -414,7 +416,7 @@ func (c *Context) FindAllPairedCertificates() (certificates []tls.Certificate, e
 	err = c.withSession(func(session *pkcs11Session) error {
 		// Add the private key class to the template to find the private half
 		privAttributes := AttributeSet{}
-		err = privAttributes.Set(CkaClass, pkcs11.CKO_PRIVATE_KEY)
+		err = privAttributes.Set(pkcs11.CKA_CLASS, pkcs11.CKO_PRIVATE_KEY)
 		if err != nil {
 			return err
 		}

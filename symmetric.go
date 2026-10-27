@@ -110,6 +110,10 @@ var CipherHMACSHA1 = &SymmetricCipher{
 	GenParams: []SymmetricGenParams{
 		{
 			KeyType: pkcs11.CKK_SHA_1_HMAC,
+			GenMech: pkcs11.CKM_SHA_1_KEY_GEN,
+		},
+		{
+			KeyType: pkcs11.CKK_SHA_1_HMAC,
 			GenMech: CKM_NC_SHA_1_HMAC_KEY_GEN,
 		},
 		{
@@ -129,6 +133,10 @@ var CipherHMACSHA1 = &SymmetricCipher{
 // GenerateSecretKey... functions.
 var CipherHMACSHA224 = &SymmetricCipher{
 	GenParams: []SymmetricGenParams{
+		{
+			KeyType: pkcs11.CKK_SHA224_HMAC,
+			GenMech: pkcs11.CKM_SHA224_KEY_GEN,
+		},
 		{
 			KeyType: pkcs11.CKK_SHA224_HMAC,
 			GenMech: CKM_NC_SHA224_HMAC_KEY_GEN,
@@ -152,6 +160,10 @@ var CipherHMACSHA256 = &SymmetricCipher{
 	GenParams: []SymmetricGenParams{
 		{
 			KeyType: pkcs11.CKK_SHA256_HMAC,
+			GenMech: pkcs11.CKM_SHA256_KEY_GEN,
+		},
+		{
+			KeyType: pkcs11.CKK_SHA256_HMAC,
 			GenMech: CKM_NC_SHA256_HMAC_KEY_GEN,
 		},
 		{
@@ -173,6 +185,10 @@ var CipherHMACSHA384 = &SymmetricCipher{
 	GenParams: []SymmetricGenParams{
 		{
 			KeyType: pkcs11.CKK_SHA384_HMAC,
+			GenMech: pkcs11.CKM_SHA384_KEY_GEN,
+		},
+		{
+			KeyType: pkcs11.CKK_SHA384_HMAC,
 			GenMech: CKM_NC_SHA384_HMAC_KEY_GEN,
 		},
 		{
@@ -192,6 +208,10 @@ var CipherHMACSHA384 = &SymmetricCipher{
 // GenerateSecretKey... functions.
 var CipherHMACSHA512 = &SymmetricCipher{
 	GenParams: []SymmetricGenParams{
+		{
+			KeyType: pkcs11.CKK_SHA512_HMAC,
+			GenMech: pkcs11.CKM_SHA512_KEY_GEN,
+		},
 		{
 			KeyType: pkcs11.CKK_SHA512_HMAC,
 			GenMech: CKM_NC_SHA512_HMAC_KEY_GEN,
@@ -223,11 +243,10 @@ var Ciphers = map[int]*SymmetricCipher{
 
 // SecretKey contains a reference to a loaded PKCS#11 symmetric key object.
 //
-// A *SecretKey implements the cipher.Block interface, allowing it be used
-// as the argument to cipher.NewCBCEncrypter and similar methods.
-// For bulk operation this is very inefficient;
-// using NewCBCEncrypterCloser, NewCBCEncrypter or NewCBC from this package is
-// much faster.
+// A *SecretKey is not a cipher.Block. Its methods run whole operations on the
+// token: NewCBCEncrypterCloser and NewCBCDecrypterCloser (or NewCBCEncrypter
+// and NewCBCDecrypter, which return a plain cipher.BlockMode) for CBC, NewGCM
+// for AES-GCM, and NewHMAC for HMAC.
 type SecretKey struct {
 	pkcs11Object
 
@@ -274,9 +293,10 @@ func (c *Context) GenerateSecretKeyWithAttributes(template AttributeSet, bits in
 
 	err = c.withSession(func(session *pkcs11Session) error {
 
-		// CKK_*_HMAC exists but there is no specific corresponding CKM_*_KEY_GEN
-		// mechanism. Therefore we attempt both CKM_GENERIC_SECRET_KEY_GEN and
-		// vendor-specific mechanisms.
+		// A cipher can list several (key type, mechanism) pairs, tried in
+		// order. The HMAC ciphers do: PKCS#11 v3.0 added CKM_SHA*_KEY_GEN for
+		// CKK_SHA*_HMAC keys, older tokens have only vendor mechanisms (nShield)
+		// or CKM_GENERIC_SECRET_KEY_GEN.
 
 		template.AddIfNotPresent([]*pkcs11.Attribute{
 			pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_SECRET_KEY),
@@ -294,8 +314,17 @@ func (c *Context) GenerateSecretKeyWithAttributes(template AttributeSet, bits in
 		}
 
 		for n, genMech := range cipher.GenParams {
+			// Skip a pair whose mechanism the token says it does not have,
+			// rather than calling C_GenerateKey with it. A vendor-defined
+			// number in particular, such as the nShield HMAC key-generation
+			// mechanisms, means nothing, or something else, on another vendor's
+			// token. The last pair is always tried, so that the caller gets the
+			// token's own error.
+			if n < len(cipher.GenParams)-1 && !c.mechanismAvailable(genMech.GenMech) {
+				continue
+			}
 
-			_ = template.Set(CkaKeyType, genMech.KeyType)
+			_ = template.Set(pkcs11.CKA_KEY_TYPE, genMech.KeyType)
 
 			mech := pkcs11.NewMechanism(genMech.GenMech, nil)
 
@@ -310,8 +339,8 @@ func (c *Context) GenerateSecretKeyWithAttributes(template AttributeSet, bits in
 			var e pkcs11.Error
 			if errors.As(err, &e) && e == pkcs11.CKR_ARGUMENTS_BAD && genMech.GenMech == pkcs11.CKM_GENERIC_SECRET_KEY_GEN {
 				adjustedTemplate := template.Copy()
-				adjustedTemplate.Unset(CkaEncrypt)
-				adjustedTemplate.Unset(CkaDecrypt)
+				adjustedTemplate.Unset(pkcs11.CKA_ENCRYPT)
+				adjustedTemplate.Unset(pkcs11.CKA_DECRYPT)
 
 				privHandle, err = session.ctx.GenerateKey(session.handle, mech, adjustedTemplate.ToSlice())
 				if err == nil {
@@ -349,6 +378,16 @@ func (c *Context) GenerateSecretKeyWithAttributes(template AttributeSet, bits in
 		return errors.New("cipher must have GenParams")
 	})
 	return
+}
+
+// mechanismAvailable reports whether the token may support mech. Only a
+// definite "no", CKR_MECHANISM_INVALID from C_GetMechanismInfo, counts: any
+// other answer leaves the decision to the operation itself, as before this
+// check existed.
+func (c *Context) mechanismAvailable(mech uint) bool {
+	_, err := c.ctx.GetMechanismInfo(c.slot, mech)
+	var p11Err pkcs11.Error
+	return !errors.As(err, &p11Err) || p11Err != pkcs11.CKR_MECHANISM_INVALID
 }
 
 // Delete deletes the secret key from the token.

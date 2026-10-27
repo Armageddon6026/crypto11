@@ -434,13 +434,22 @@ func TestConfigureFromFileRefusesSharedPinFile(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, ctx.Close())
 
-	// A file without a PIN in it is not a credential and is not policed.
+	// A file without a PIN in it is not a credential and may be world-readable.
 	cfg.Pin = ""
 	cfg.LoginNotSupported = true
 	data, err = json.Marshal(cfg)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(path, data, 0o644))
+	require.NoError(t, os.Chmod(path, 0o644))
 	ctx, err = ConfigureFromFile(path)
 	require.NoError(t, err)
 	require.NoError(t, ctx.Close())
+
+	// It still names the library to load, so others must not be able to change it.
+	for _, mode := range []os.FileMode{0o664, 0o646} {
+		require.NoError(t, os.Chmod(path, mode))
+		_, err = ConfigureFromFile(path)
+		require.Error(t, err, "mode %04o", mode)
+		assert.Contains(t, err.Error(), "writable by other users")
+	}
 }

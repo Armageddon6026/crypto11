@@ -6,7 +6,12 @@ package crypto11
 
 import (
 	"bytes"
+	"crypto/md5"
+	"crypto/sha1"
+	"crypto/sha256"
+	"crypto/sha512"
 	"errors"
+	"hash"
 	"sync"
 	"testing"
 	"time"
@@ -282,14 +287,51 @@ func TestCheckMACLength(t *testing.T) {
 }
 
 func TestHmacInfoSizesMatchDigests(t *testing.T) {
-	// The table is what Sum validates token output against, so an entry that
-	// is wrong (MD5 was listed at 20 bytes) would reject every correct MAC.
-	assert.Equal(t, 16, hmacInfos[pkcs11.CKM_MD5_HMAC].size)
-	assert.Equal(t, 20, hmacInfos[pkcs11.CKM_SHA_1_HMAC].size)
-	assert.Equal(t, 28, hmacInfos[pkcs11.CKM_SHA224_HMAC].size)
-	assert.Equal(t, 32, hmacInfos[pkcs11.CKM_SHA256_HMAC].size)
-	assert.Equal(t, 48, hmacInfos[pkcs11.CKM_SHA384_HMAC].size)
-	assert.Equal(t, 64, hmacInfos[pkcs11.CKM_SHA512_HMAC].size)
+	// The table is what Sum validates token output against, so a wrong size
+	// (MD5 was listed at 20 bytes) rejects every correct MAC; and its block size
+	// is what BlockSize reports (SHA-384 was listed at 64 bytes, not 128). Both
+	// are checked against Go's own implementation of each hash.
+	hashes := map[int]func() hash.Hash{
+		pkcs11.CKM_MD5_HMAC:        md5.New,
+		pkcs11.CKM_SHA_1_HMAC:      sha1.New,
+		pkcs11.CKM_SHA224_HMAC:     sha256.New224,
+		pkcs11.CKM_SHA256_HMAC:     sha256.New,
+		pkcs11.CKM_SHA384_HMAC:     sha512.New384,
+		pkcs11.CKM_SHA512_HMAC:     sha512.New,
+		pkcs11.CKM_SHA512_224_HMAC: sha512.New512_224,
+		pkcs11.CKM_SHA512_256_HMAC: sha512.New512_256,
+	}
+	// Each _GENERAL mechanism is its plain one plus one.
+	for mech, newHash := range hashes {
+		h := newHash()
+		for _, m := range []int{mech, mech + 1} {
+			info, ok := hmacInfos[m]
+			require.True(t, ok, "mechanism %#x missing from hmacInfos", m)
+			assert.Equal(t, h.Size(), info.size, "size of %#x", m)
+			assert.Equal(t, h.BlockSize(), info.blockSize, "block size of %#x", m)
+			assert.Equal(t, m == mech+1, info.general, "general flag of %#x", m)
+		}
+	}
+	// RIPEMD-160 has no implementation in the standard library.
+	assert.Equal(t, 20, hmacInfos[pkcs11.CKM_RIPEMD160_HMAC].size)
+	assert.Equal(t, 64, hmacInfos[pkcs11.CKM_RIPEMD160_HMAC].blockSize)
+}
+
+func TestNewHMACRejectsInvalidLength(t *testing.T) {
+	// The length is checked before a session is taken, so no token is needed.
+	key := &SecretKey{}
+	for _, c := range []struct {
+		mech, length int
+	}{
+		{pkcs11.CKM_SHA256_HMAC_GENERAL, 0},
+		{pkcs11.CKM_SHA256_HMAC_GENERAL, -1},
+		{pkcs11.CKM_SHA256_HMAC_GENERAL, 33},
+		{pkcs11.CKM_SHA_1_HMAC_GENERAL, 21},
+		{pkcs11.CKM_VENDOR_DEFINED, -1}, // not in the table
+	} {
+		_, err := key.NewHMAC(c.mech, c.length)
+		require.ErrorIs(t, err, errInvalidMACLength, "mechanism %#x, length %d", c.mech, c.length)
+	}
 }
 
 func TestHmacResetAfterDeadOperationDoesNotPanic(t *testing.T) {

@@ -105,6 +105,28 @@ func notNilBytes(obj []byte, name string) error {
 	return nil
 }
 
+// dsaPublicKeysEqual reports whether a and b are the same DSA public key, which has no Equal
+// method. ok is false when a is not a DSA key.
+func dsaPublicKeysEqual(a, b crypto.PublicKey) (equal, ok bool) {
+	da, ok := a.(*dsa.PublicKey)
+	if !ok {
+		return false, false
+	}
+	db, isDSA := b.(*dsa.PublicKey)
+	return isDSA && da.Y.Cmp(db.Y) == 0 && da.P.Cmp(db.P) == 0 && da.Q.Cmp(db.Q) == 0 && da.G.Cmp(db.G) == 0, true
+}
+
+// verifyDSASignature verifies a raw r || s signature over digest under pub. ok is false when pub
+// is not a DSA key.
+func verifyDSASignature(pub crypto.PublicKey, digest, sig []byte) (valid, ok bool) {
+	k, ok := pub.(*dsa.PublicKey)
+	if !ok {
+		return false, false
+	}
+	var s dsaSignature
+	return s.unmarshalBytes(sig) == nil && dsa.Verify(k, digest, s.R, s.S), true
+}
+
 func (signer *pkcs11PrivateKeyDSA) KeyType() uint {
 	return pkcs11.CKK_DSA
 }

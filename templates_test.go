@@ -8,6 +8,7 @@ import (
 	"crypto/elliptic"
 	"testing"
 
+	pkcs11 "github.com/eclipse-keypont/pkcs11-go/cryptoki"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,7 +22,7 @@ func TestDefaultPrivateFollowsLoginSupport(t *testing.T) {
 // ckaPrivate reads CKA_PRIVATE back from the token for the private or secret half of key.
 func ckaPrivate(t *testing.T, ctx *Context, key interface{}) bool {
 	t.Helper()
-	attr, err := ctx.GetAttribute(key, CkaPrivate)
+	attr, err := ctx.GetAttribute(key, pkcs11.CKA_PRIVATE)
 	require.NoError(t, err)
 	require.NotNil(t, attr)
 	require.Len(t, attr.Value, 1)
@@ -60,7 +61,7 @@ func TestExplicitCkaPrivateIsPreserved(t *testing.T) {
 		public, err := NewAttributeSetWithID(randomBytes())
 		require.NoError(t, err)
 		private := public.Copy()
-		require.NoError(t, private.Set(CkaPrivate, false))
+		require.NoError(t, private.Set(pkcs11.CKA_PRIVATE, false))
 
 		key, err := ctx.GenerateRSAKeyPairWithAttributes(public, private, rsaSize)
 		require.NoError(t, err)
@@ -68,6 +69,6 @@ func TestExplicitCkaPrivateIsPreserved(t *testing.T) {
 		assert.False(t, ckaPrivate(t, ctx, key))
 
 		// And the template reflects what was applied.
-		assert.Equal(t, []byte{0}, private[CkaPrivate].Value)
+		assert.Equal(t, []byte{0}, private[pkcs11.CKA_PRIVATE].Value)
 	})
 }

@@ -52,9 +52,9 @@ was replaced, the config file was renamed, and the API surface was hardened afte
   `FindPrivateKey` families, and their public half as `crypto/ed25519.PublicKey`, so they drop
   into `x509.CreateCertificate` and `ed25519.Verify` unchanged. Only pure Ed25519 is signed:
   Ed25519ph and Ed25519ctx need `CK_EDDSA_PARAMS`, which the binding does not yet marshal, and
-  `Sign` refuses them rather than silently signing the pure variant. An empty message is refused
-  too: the binding passes it to `C_Sign` as a NULL pointer, which SoftHSM2 rejects while leaving
-  the operation active on the session. `CKA_EC_POINT` is accepted
+  `Sign` refuses them rather than silently signing the pure variant. An empty message is signed
+  like any other: pkcs11-go now passes zero-length input as a valid buffer, where it used to pass
+  a NULL pointer that SoftHSM2 rejects. `CKA_EC_POINT` is accepted
   both DER-wrapped and bare, `CKA_EC_PARAMS` as the OID or the `"edwards25519"` string. An
   Ed448 key — same `CKK_EC_EDWARDS` key type, no Go type to return it as — is skipped by
   enumeration rather than failing it, and a template asking for one is refused before any
@@ -69,6 +69,21 @@ was replaced, the config file was renamed, and the API surface was hardened afte
   [@eriklupander](https://github.com/eriklupander)). It reads in-memory counters only: no PKCS#11
   call, no session taken, safe to call concurrently or on a closed `Context`. The returned
   `PoolStats` is a plain struct, so the vendored `internal/pool` types stay out of the public API.
+- `Config.ReadOnlySessions`, which opens every session — the persistent one and the pooled ones —
+  without `CKF_RW_SESSION`, for tokens that refuse a read/write session outright (some answer
+  `C_OpenSession` with `CKR_TOKEN_WRITE_PROTECTED`) and for deployments that only ever use keys
+  provisioned elsewhere ([#109](https://github.com/eclipse-keypont/crypto11/pull/109), contributed
+  by [@thuandb](https://github.com/thuandb)). A read-only session cannot create or destroy objects,
+  so key generation, key import and object deletion fail with `CKR_SESSION_READ_ONLY` while it is
+  set; signing, verification, encryption and decryption with existing keys are unaffected.
+- **Demand-driven session allocation**: the pool now hands out a session that is already open in
+  preference to opening a new one, so the number of sessions open on the token tracks the
+  concurrency actually in flight rather than the number of operations served
+  ([#142](https://github.com/eclipse-keypont/crypto11/issues/142), reported by
+  [@robinsandhu](https://github.com/robinsandhu)). `PoolStats` gains an `IdleReused` counter. The
+  session-recovery half of the same issue — a session the token has declared dead is closed and
+  replaced rather than returned to the pool — landed earlier in
+  [#144](https://github.com/eclipse-keypont/crypto11/pull/144).
 - `FindAllRSAKeyPairs`, the decryption-capable counterpart of `FindAllKeyPairs`: one call for every
   key pair on the token that can decrypt, returned as `SignerDecrypter`
   ([#112](https://github.com/eclipse-keypont/crypto11/issues/112)). The generic `FindKeyPair` family
@@ -178,6 +193,29 @@ reporting or the Eclipse Foundation security team — and which versions receive
 
 ### Fixed
 
+- **`Delete` on a key pair without a public key object.** `FindKeyPair` takes the public half
+  from a certificate when the token holds no public key object. `Delete` on such a pair destroyed
+  the private key and then returned `CKR_OBJECT_HANDLE_INVALID` for the public object that does
+  not exist, so a successful deletion was reported as a failure. It now returns nil and leaves
+  the certificate, a separate object, for `DeleteCertificate`.
+- **RSA-PSS options are checked before reaching the token.** A negative `PSSOptions.SaltLength`
+  other than the two sentinels made `Sign` panic, since pkcs11-go's `NewPSSParams` panics on a
+  negative salt. It is now an error wrapping `errUnsupportedRSAOptions`, as crypto/rsa makes it.
+  An explicit salt longer than the modulus can carry is `rsa.ErrMessageTooLong`, again as in
+  crypto/rsa, and a digest whose length is not the hash's size is an error rather than something
+  left to the token, matching the PKCS#1 v1.5 path.
+- **HMAC.** `NewHMAC` reported a `BlockSize` of 64 for `CKM_SHA384_HMAC` and
+  `CKM_SHA384_HMAC_GENERAL`; SHA-384's block size is 128. For a `_GENERAL` mechanism it accepted
+  any output length: 0 made every `Sum` panic on the empty MAC, and a negative length reached the
+  token as a huge `CK_ULONG`. Lengths outside 1 to the hash's full size are now rejected with
+  `errInvalidMACLength`. The size table is tested against Go's own hash implementations.
+- **CBC `CryptBlocks` on empty input** is a no-op, as it is for crypto/cipher's block modes. It
+  used to pass the empty slice to the token, and on SoftHSM2 panicked with
+  `CKR_ARGUMENTS_BAD`.
+- **Empty inputs.** AES-GCM `Seal` with an empty plaintext, which authenticates associated data
+  only and is a legitimate use, panicked with `CKR_ARGUMENTS_BAD` on SoftHSM2. Ed25519 refused to
+  sign an empty message. Both came from pkcs11-go passing zero-length input to the module as a
+  NULL pointer; with the pkcs11-go release that passes a valid buffer, both work.
 - Key enumeration no longer aborts on a key type the package cannot represent
   ([#68](https://github.com/eclipse-keypont/crypto11/issues/68), reported by
   [@Knacktus](https://github.com/Knacktus) and independently run into by
@@ -223,9 +261,21 @@ reporting or the Eclipse Foundation security team — and which versions receive
 
 ### Changed
 
+- Build and test toolchain bumped from `go1.27.2` to `go1.27.3` (`toolchain` directive in
+  `go.mod`, `.go-version`, and the version noted in `CONTRIBUTING.md`). go1.27.3 is a patch
+  release that fixes the `crypto/x509` standard-library vulnerability `GO-2026-6809`
+  ("distrust compromised intermediate certificates") flagged by `govulncheck` on go1.27.2.
+- **HMAC key generation tries the PKCS#11 v3.0 mechanisms first.** `CipherHMACSHA1` …
+  `CipherHMACSHA512` now list `CKM_SHA_1_KEY_GEN` … `CKM_SHA512_KEY_GEN`, which v3.0
+  standardised for `CKK_SHA*_HMAC` keys, ahead of the nShield vendor mechanisms and the
+  `CKM_GENERIC_SECRET_KEY_GEN` fallback. Key generation also skips a (key type, mechanism) pair
+  the token reports as `CKR_MECHANISM_INVALID` from `C_GetMechanismInfo`, instead of calling
+  `C_GenerateKey` with it. A vendor-defined mechanism number now reaches only a token that
+  reports supporting it, rather than every token, where the same number can mean something
+  else. The last pair is always tried, so the error a caller sees is still the token's own.
 - **crypto11 no longer contains any cgo of its own.** The `CK_ULONG` conversions were the last
   `import "C"` in the package; they now delegate to `cryptoki.ULongToBytes` / `cryptoki.BytesToULong`,
-  added in pkcs11-go v1.1.0. This release requires v1.2.0-rc3, which carries the binding's own
+  added in pkcs11-go v1.1.0. This release requires v1.2.0, which carries the binding's own
   fixes for the Synapse security findings
   ([eclipse-keypont/pkcs11-go#15](https://github.com/eclipse-keypont/pkcs11-go/pull/15)) and the
   consolidated security review of the `cryptoki` and `p11` packages (memory-safety, input-validation
@@ -271,6 +321,21 @@ reporting or the Eclipse Foundation security team — and which versions receive
   export data (version 5 is greater than the maximum supported version 4) and fails the
   scan with an import error. Move back to a tagged release once one ships
   `x/tools` >= v0.50.0.
+
+### Deprecated
+
+- **The `Cka*` attribute constants.** They were a hand-copied list of `CKA_*` values that had
+  fallen behind the specification: 111 of the 160 attributes in the PKCS#11 v3.2 header, missing
+  `CKA_UNIQUE_ID`, `CKA_PROFILE_ID`, `CKA_SEED`, `CKA_PUBLIC_CRC64_VALUE` and the validation and
+  trust attributes. The pkcs11-go binding's `cryptoki` package is generated from that header
+  and defines all of them, so each `Cka*` constant is now defined from the binding's constant of
+  the same name, keeping its `AttributeType` type (`CkaLabel = AttributeType(pkcs11.CKA_LABEL)`),
+  and marked deprecated. Existing code compiles and behaves as before; new code should use
+  `pkcs11.CKA_*` directly, which `AttributeSet.Set` and every other `AttributeType` parameter
+  already accept. crypto11 itself now uses the binding's
+  constants throughout. `AttributeSet.String` names attributes with the binding's generated
+  `cryptoki.AttributeName` (`CKA_VALUE`, not `CkaValue`), which also covers every attribute
+  the old 180-line name table did not, instead of printing `Unknown` for them.
 
 ### CI/CD & supply chain
 

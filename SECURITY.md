@@ -8,32 +8,43 @@ SPDX-License-Identifier: MIT
 
 crypto11 is a cryptographic library: it brokers access to private key material held in HSMs and
 other PKCS#11 tokens. We take reports seriously and would rather hear about a suspected issue than
-not. But keep in mind we are in the AI LLM agentic period, and security reports reviewing can become difficult when there are many reports sent in a short period of time.
+not.
+
+This project is an Eclipse Foundation project and adheres to the
+[Eclipse Foundation Vulnerability Reporting Policy](https://www.eclipse.org/security/policy/).
 
 ## Reporting a vulnerability
 
 **Please do not report security vulnerabilities through public GitHub issues, discussions or pull
 requests.**
 
-Report privately through either channel:
+Report privately through any of these channels:
 
 - **[GitHub private vulnerability reporting](https://github.com/eclipse-keypont/crypto11/security/advisories/new)**
   — preferred. It keeps the report, the fix and the advisory in one place.
+- **The Eclipse Foundation Vulnerability Reporting Tracker**, by creating a
+  [confidential issue](https://gitlab.eclipse.org/security/vulnerability-reports/-/issues/new?issuable_template=new_vulnerability).
+  This is the Foundation-level channel and the right one if the issue spans several Eclipse KeyPont
+  projects.
 - **The Eclipse Foundation security team**, at <security@eclipse-foundation.org>. See the
   [Eclipse Foundation Security Policy](https://www.eclipse.org/security/policy/) for the
-  Foundation-level process. This is the right channel if the issue spans several Eclipse KeyPont
-  projects, or if you would rather not report through GitHub.
+  Foundation-level process. Use this channel if you would rather not report through GitHub or GitLab.
 
 ### What to include
 
 The more of this you can supply, the faster we can confirm and fix:
 
-- A description of the issue and why you believe it has security impact.
+- A description of the issue and why you believe it has security impact, including the type of
+  issue (for example a buffer overflow, a padding oracle, or a secret leak).
 - The affected version or commit, and whether `master` is affected.
 - The PKCS#11 module and token involved (vendor, product, library/firmware version) — token
   behaviour varies enormously, and an issue that is exploitable against one implementation may be
   inert against another.
-- A minimal reproducer, or the sequence of API calls that triggers it.
+- Step-by-step instructions to reproduce the issue, and the location of the affected source code
+  (tag/branch/commit or direct URL), with full paths of the source files involved.
+- Any configuration required to reproduce the issue, and related log files if you have them.
+- A minimal reproducer, or the sequence of API calls that triggers it. Proof-of-concept or exploit
+  code is welcome if you have it.
 - Any known workaround or mitigating configuration.
 - Whether you intend to disclose publicly, and on what timeline.
 
@@ -41,11 +52,16 @@ Reports in any language are fine, and a partial report is better than none.
 
 ## What to expect
 
-We will try are best to let you know when we have confirmed the issue, when a fix lands, and when the advisory is
-published. If we conclude the report is not a vulnerability we will explain why, and you are
-welcome to push back.
+We will do our best to let you know when we have confirmed the issue, when a fix lands, and when
+the advisory is published. If we conclude the report is not a vulnerability we will explain why,
+and you are welcome to push back.
 
 This is a modest project. We do our best to maintain it, but sometimes we lack the time.
+
+We work on a best-effort basis, but a strong security CI/CD pipeline backs every change: linting,
+static analysis, vulnerability scanning and signed, provenance-attested releases. It reduces the
+odds of a defect reaching a release, and it is why we would rather hear about a suspected issue
+than not.
 
 ## Disclosure
 

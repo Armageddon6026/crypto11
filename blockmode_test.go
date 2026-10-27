@@ -30,6 +30,37 @@ func TestBlockMode(t *testing.T) {
 	t.Run("cbc mode", func(t *testing.T) { testCBCMode(t, key, iv) })
 }
 
+// TestBlockModeEmptyInput checks that CryptBlocks on an empty slice is a no-op,
+// as it is for crypto/cipher's own block modes, and leaves the mode usable.
+func TestBlockModeEmptyInput(t *testing.T) {
+	ctx := testContext(t)
+	skipIfMechUnsupported(t, ctx, pkcs11.CKM_AES_CBC)
+
+	key, err := ctx.GenerateSecretKey(randomBytes(), 256, CipherAES)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, key.Delete()) }()
+
+	iv := make([]byte, key.Cipher.BlockSize)
+	plaintext := []byte("sixteen byte msg")
+
+	enc, err := key.NewCBCEncrypterCloser(iv)
+	require.NoError(t, err)
+	require.NotPanics(t, func() { enc.CryptBlocks(nil, nil) })
+	require.NotPanics(t, func() { enc.CryptBlocks([]byte{}, []byte{}) })
+	ciphertext := make([]byte, len(plaintext))
+	enc.CryptBlocks(ciphertext, plaintext)
+	enc.Close()
+
+	dec, err := key.NewCBCDecrypterCloser(iv)
+	require.NoError(t, err)
+	require.NotPanics(t, func() { dec.CryptBlocks(nil, nil) })
+	decrypted := make([]byte, len(ciphertext))
+	dec.CryptBlocks(decrypted, ciphertext)
+	dec.Close()
+
+	require.Equal(t, plaintext, decrypted)
+}
+
 func trimSize(input []byte, blockSize int) (res []byte) {
 	if len(input)%blockSize != 0 {
 		multiplier := len(input) / blockSize
