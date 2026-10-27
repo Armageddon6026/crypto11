@@ -47,6 +47,7 @@ func TestMLKEM(t *testing.T) {
 	t.Run("OtherFindersStillWork", func(t *testing.T) { testMLKEMOtherFindersStillWork(t, ctx) })
 	t.Run("NonExtractableSecretIsAnError", func(t *testing.T) { testMLKEMNonExtractableSecret(t, ctx) })
 	t.Run("SharedSecretDefaults", func(t *testing.T) { testMLKEMSharedSecretDefaults(t, ctx) })
+	t.Run("EncapsulatorDefaults", func(t *testing.T) { testMLKEMEncapsulatorDefaults(t, ctx) })
 	t.Run("FindRejectsPlantedPublicKey", func(t *testing.T) { testMLKEMFindRejectsPlantedPublicKey(t, ctx) })
 	t.Run("LabelOnlyKeyNotPairedWithForeignKey", func(t *testing.T) { testMLKEMLabelOnlyKey(t, ctx) })
 }
@@ -89,6 +90,40 @@ func testMLKEMSharedSecretDefaults(t *testing.T, ctx *Context) {
 		_, err := ss.Bytes()
 		assert.Error(t, err, "%s secret value was readable", name)
 	}
+}
+
+func testMLKEMEncapsulatorDefaults(t *testing.T, ctx *Context) {
+	t.Helper()
+	key, err := ctx.GenerateMLKEMKeyPair(randomBytes(), MLKEM768)
+	require.NoError(t, err)
+	defer func() { _ = key.Delete() }()
+
+	template := NewAttributeSet()
+	require.NoError(t, template.Set(CkaClass, pkcs11.CKO_SECRET_KEY))
+	require.NoError(t, template.Set(CkaKeyType, pkcs11.CKK_AES))
+	require.NoError(t, template.Set(CkaValueLen, 32))
+	require.NoError(t, template.Set(CkaToken, false))
+	original := template.Copy()
+
+	_, ss, err := key.Encapsulator().Encapsulate(template)
+	require.NoError(t, err)
+	defer func() { _ = ss.Delete() }()
+
+	assert.Equal(t, original, template, "the caller's template must not be modified")
+	var attrs []*pkcs11.Attribute
+	require.NoError(t, ctx.withSession(func(session *pkcs11Session) (err error) {
+		attrs, err = session.ctx.GetAttributeValue(session.handle, ss.handle, []*pkcs11.Attribute{
+			pkcs11.NewAttribute(pkcs11.CKA_SENSITIVE, nil),
+			pkcs11.NewAttribute(pkcs11.CKA_EXTRACTABLE, nil),
+			pkcs11.NewAttribute(pkcs11.CKA_PRIVATE, nil),
+		})
+		return err
+	}))
+	require.Len(t, attrs, 3)
+	assert.Equal(t, []byte{1}, attrs[0].Value, "shared secret CKA_SENSITIVE")
+	assert.Equal(t, []byte{0}, attrs[1].Value, "shared secret CKA_EXTRACTABLE")
+	assert.Equal(t, pkcs11.NewAttribute(pkcs11.CKA_PRIVATE, ctx.defaultPrivate()).Value,
+		attrs[2].Value, "shared secret CKA_PRIVATE")
 }
 
 // plantMLKEMPublicKey creates an ML-KEM public key object carrying id and label for the

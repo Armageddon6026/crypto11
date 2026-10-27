@@ -10,6 +10,9 @@ was replaced, the config file was renamed, and the API surface was hardened afte
 
 ### Breaking changes
 
+- `MLKEMDecapsulator` now requires `Encapsulator() Encapsulator`, which exposes the matching
+  public key for encapsulation. External implementations and mocks of `MLKEMDecapsulator`
+  (including those implementing `MLKEMKeyPair`) must add this method.
 - `ConfigureFromFile` refuses a configuration file that contains a `Pin` and is readable by its
   group or by others (mode `& 0077 != 0`; not checked on Windows). A `chmod 600` on the file, or
   moving the PIN out of it (`Config.PinFunc`, an environment variable), is the fix.

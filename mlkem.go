@@ -159,23 +159,16 @@ func (k *pkcs11MLKEMEncapsulatorKey) Encapsulate(sharedSecretAttrs AttributeSet)
 		return nil, nil, fmt.Errorf("unsupported key type")
 	}
 
-	var ciphertext []byte
-	var ss *SecretKey
-	err := k.context.withSession(func(session *pkcs11Session) error {
-		mech := pkcs11.NewMechanism(pkcs11.CKM_ML_KEM, nil)
-		ct, ssHandle, err := session.ctx.EncapsulateKey(
-			session.handle, mech, k.handle, sharedSecretAttrs.ToSlice())
-		if err != nil {
-			return err
-		}
-		ciphertext = ct
-		ss = &SecretKey{
-			pkcs11Object: pkcs11Object{handle: ssHandle, context: k.context},
-			Cipher:       cipher,
-		}
-		return nil
-	})
-	return ciphertext, ss, err
+	ciphertext, ss, err := encapsulateMLKEM(k.context, k.handle, sharedSecretAttrs)
+	if err != nil {
+		return nil, nil, err
+	}
+	key := &SecretKey{
+		pkcs11Object: pkcs11Object{handle: ss.handle, context: k.context},
+		Cipher:       cipher,
+	}
+
+	return ciphertext, key, err
 }
 
 // Encapsulator returns the public key of this ML-KEM key pair.
@@ -210,17 +203,25 @@ func (k *pkcs11MLKEMKeyPair) ParameterSet() MLKEMParameterSet {
 // Encapsulate performs ML-KEM encapsulation using the public key (PKCS#11 v3.2 C_EncapsulateKey).
 // sharedSecretAttrs must describe the desired derived key (e.g. CKK_AES, CKA_VALUE_LEN = 32).
 func (k *pkcs11MLKEMKeyPair) Encapsulate(sharedSecretAttrs AttributeSet) ([]byte, *MLKEMSharedSecret, error) {
+	return encapsulateMLKEM(k.context, k.pubKeyHandle, sharedSecretAttrs)
+}
+
+// encapsulateMLKEM is shared by both Encapsulate entry points so they apply
+// the same shared-secret template defaults.
+// encapsulateMLKEM is shared by both Encapsulate entry points so they apply
+// the same shared-secret template defaults.
+func encapsulateMLKEM(context *Context, pubKeyHandle pkcs11.ObjectHandle, sharedSecretAttrs AttributeSet) ([]byte, *MLKEMSharedSecret, error) {
 	var ciphertext []byte
 	var ss *MLKEMSharedSecret
-	err := k.context.withSession(func(session *pkcs11Session) error {
+	err := context.withSession(func(session *pkcs11Session) error {
 		mech := pkcs11.NewMechanism(pkcs11.CKM_ML_KEM, nil)
 		ct, ssHandle, err := session.ctx.EncapsulateKey(
-			session.handle, mech, k.pubKeyHandle, k.context.sharedSecretTemplate(sharedSecretAttrs))
+			session.handle, mech, pubKeyHandle, context.sharedSecretTemplate(sharedSecretAttrs))
 		if err != nil {
 			return err
 		}
 		ciphertext = ct
-		ss = &MLKEMSharedSecret{pkcs11Object{handle: ssHandle, context: k.context}}
+		ss = &MLKEMSharedSecret{pkcs11Object{handle: ssHandle, context: context}}
 		return nil
 	})
 	return ciphertext, ss, err

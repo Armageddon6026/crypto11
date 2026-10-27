@@ -273,6 +273,9 @@ type Encapsulator interface {
 	// Encapsulate generates a ciphertext and derives the shared secret as a key on the token,
 	// using sharedSecretAttrs as the key template. Send the ciphertext to the holder of the
 	// matching private key so they can derive the same shared secret.
+	// CKA_KEY_TYPE must identify a key type supported by [Ciphers].
+	// Unless explicitly set in the template, the key is sensitive, not extractable and
+	// private where the token supports login.
 	Encapsulate(sharedSecretAttrs AttributeSet) (ciphertext []byte, sharedSecret *SecretKey, err error)
 }
 
