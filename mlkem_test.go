@@ -348,21 +348,23 @@ func testMLKEMEncapsulatorByAESGCM(t *testing.T, ctx *Context) {
 	decapBytes, err := decapSS.Bytes()
 	require.NoError(t, err)
 
+	enAead, err := encapSS.NewGCM()
+	require.NoError(t, err)
+	nonceSize := enAead.NonceSize()
+
 	// Encrypt locally with the decapsulated key.
 	block, err := aes.NewCipher(decapBytes)
 	require.NoError(t, err)
-	deAead, err := cipher.NewGCM(block)
+	deAead, err := cipher.NewGCMWithNonceSize(block, nonceSize)
 	require.NoError(t, err)
 
-	nonce := make([]byte, deAead.NonceSize())
+	nonce := make([]byte, nonceSize)
 	_, err = rand.Read(nonce)
 	require.NoError(t, err)
 
 	encryptedData := deAead.Seal([]byte{}, nonce, testBytes, nil)
 
 	// The token-held encapsulated key must decrypt the ciphertext.
-	enAead, err := encapSS.NewGCM()
-	require.NoError(t, err)
 	decryptedData, err := enAead.Open([]byte{}, nonce, encryptedData, nil)
 	require.NoError(t, err)
 

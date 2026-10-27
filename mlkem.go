@@ -128,15 +128,9 @@ func (k *pkcs11MLKEMEncapsulatorKey) Bytes() ([]byte, error) {
 			return err
 		}
 		if len(attrs) == 0 || len(attrs[0].Value) == 0 {
-			// The token returned no value — typically because the key is
-			// sensitive / non-extractable.
-			return fmt.Errorf("encapsulator key is unavailable (key not extractable?)")
+			return fmt.Errorf("ML-KEM public key value is unavailable")
 		}
-		// Hand the caller its own copy and clear the binding's, which it has
-		// no way to reach; the documented pkcs11.Wipe on the returned slice
-		// would otherwise leave this second copy for the garbage collector.
 		raw = append([]byte(nil), attrs[0].Value...)
-		pkcs11.Wipe(attrs[0].Value)
 		return nil
 	})
 	return raw, err
