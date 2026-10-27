@@ -208,8 +208,6 @@ func (k *pkcs11MLKEMKeyPair) Encapsulate(sharedSecretAttrs AttributeSet) ([]byte
 
 // encapsulateMLKEM is shared by both Encapsulate entry points so they apply
 // the same shared-secret template defaults.
-// encapsulateMLKEM is shared by both Encapsulate entry points so they apply
-// the same shared-secret template defaults.
 func encapsulateMLKEM(context *Context, pubKeyHandle pkcs11.ObjectHandle, sharedSecretAttrs AttributeSet) ([]byte, *MLKEMSharedSecret, error) {
 	var ciphertext []byte
 	var ss *MLKEMSharedSecret
